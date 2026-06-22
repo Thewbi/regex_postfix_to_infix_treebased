@@ -1,55 +1,5 @@
-/*
-// Source - https://stackoverflow.com/a/36168774
-// Posted by DK.
-// Retrieved 2026-06-20, License - CC BY-SA 3.0
-
-use std::cell::RefCell;
-use std::rc::{Rc, Weak};
-
-// Note: do not derive Clone to make this move-only.
-pub struct Node3(Rc<RefCell<Node3_>>);
-
-pub type WeakNode3 = Weak<RefCell<Node3_>>;
-
-pub struct Node3_ {
-    parent: Option<WeakNode3>,
-    children: Vec<Node3>,
-}
-
-impl Node3 {
-    pub fn add(&self, node: Node3) {
-        // No need to remove from old parent; 
-        // move semantics mean that must have already been done.
-        (node.0).borrow_mut().parent = Some(Rc::downgrade(&self.0));
-        (node.0).borrow_mut().children.push(node);
-    }
-}
-*/
-
-/*
-#[derive(Debug)]
-struct Node<T> {
-    data: T,
-    children: Vec<&mut Node<T>>,
-}
-
-impl<T> Node<T> {
-
-    fn new(data: T) -> Node<T> {
-        Node { data: data, children: vec![] }
-    }
-
-    // fn add_child(&mut self, child: Node<T>) {
-    //     self.children.push(child);
-    // }
-
-    fn add_child_mut(&mut self, child: &mut Node<T>) {
-        self.children.push(child);
-    }
-}
-*/
-
 use std::fmt;
+use std::fmt::Debug;
 
 #[derive(Clone, Copy)]
 pub struct NodeId {
@@ -57,12 +7,9 @@ pub struct NodeId {
 }
 
 pub struct Node<T> {
-    parent: Option<NodeId>,
     left: Option<NodeId>,
     right: Option<NodeId>,
-
-    // payload
-    pub data: T,
+    pub data: T, // payload
 }
 
 pub struct Arena<T> {
@@ -77,6 +24,10 @@ impl<T> Arena<T> {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.nodes.clear();
+    }
+
     pub fn is_empty(&self) -> bool {
         self.nodes.len() == 0
     }
@@ -88,7 +39,6 @@ impl<T> Arena<T> {
 
         // Push the node into the arena
         self.nodes.push(Node {
-            parent: None,
             left: None,
             right: None,
             data: data,
@@ -106,10 +56,9 @@ impl<T> Arena<T> {
         &self.nodes[node_id.index].data
     }
 
-    // pub fn get_left_id(&mut self, parent_node_id: &NodeId) -> NodeId {
-    //     let parent_node: &Node<T> = &self.nodes[parent_node_id.index];
-    //     parent_node.left.as_ref().unwrap().clone()
-    // }
+    pub fn get_payload_by_index(&mut self, index: usize) -> &T {
+        &self.nodes[index].data
+    }
 
     pub fn get_left_id(&mut self, parent_node_id: &NodeId) -> Option<&NodeId> {
         let parent_node: &Node<T> = &self.nodes[parent_node_id.index];
@@ -144,28 +93,22 @@ impl<T> Arena<T> {
         parent_node.right = Some(right_node_id);
     }
 
-    pub fn insert_repeat_node_into_node(&mut self, node_id: &NodeId, regexBB: T) {
+    pub fn insert_repeat_node_into_node(&mut self, node_id: &NodeId, regex_building_block: T) {
 
         // Get the next free index
         let next_index = self.nodes.len();
 
         // Push the node into the arena
         self.nodes.push(Node {
-            parent: None,
             left: None,
             right: None,
-            data: regexBB,
+            data: regex_building_block,
         });
 
-        //let right_node_id = self.get_right_id(&node_id);
-
-        //let old_right = self.nodes[node_id.index].right.as_ref().unwrap().index;
         let old_right_option = self.nodes[node_id.index].right;
 
-        //self.insert_right(&node_id, repeat_node_id.clone());
         self.nodes[node_id.index].right = Some ( NodeId { index: next_index } );
         
-        //self.insert_left(&repeat_node_id, right_node_id.unwrap().clone());
         match old_right_option {
             Some(old_right_node_id) => {
                 self.nodes[next_index].left = Some ( NodeId { index: old_right_node_id.index } );
@@ -175,12 +118,10 @@ impl<T> Arena<T> {
             }
         }
     }
-
-    
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
-enum RegexBuildingBlock {
+pub enum RegexBuildingBlock {
 
     CharacterLiteral(char),
 
@@ -192,39 +133,53 @@ enum RegexBuildingBlock {
 
     Or,
 
+    Not,
+
     OpeningBraces,
     ClosingBraces,
     ClosedBraces,
 
 }
 
-
 impl fmt::Debug for RegexBuildingBlock {
+
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+
         match self {
+            Self::Not => {
+                write!(f, "^").expect("Write failed!");
+                Ok(())
+            }
             Self::CharacterLiteral(c) => {
                 //f.debug_tuple("CharacterLiteral").field(c).finish(),
-                write!(f, "{}", c);
+                match c {
+                    '\n' => { write!(f, "\\n").expect("Write failed!"); }
+                    '\r' => { write!(f, "\\r").expect("Write failed!"); }
+                    '\t' => { write!(f, "\\t").expect("Write failed!"); }
+                    //r"\*" => { write!(f, "\\*").expect("Write failed!"); }
+                    // '\s' => { write!(f, "\\s").expect("Write failed!"); }
+                    _ => { write!(f, "{}", c).expect("Write failed!"); }
+                }
                 Ok(())
             }
             Self::Concatenation => write!(f, "#"),
             Self::CharacterClass(start, end) => {
                 //f.debug_tuple("CharacterClass").field(start).field(end).finish(),
-                write!(f, "[{}-{}]", start, end);
+                write!(f, "[{}-{}]", start, end).expect("Write failed!");
                 Ok(())
             }
             Self::Repeat(min, max) => {
                 //f.debug_tuple("Repeat").field(min).field(max).finish(),
                 if *min == 0 && *max == 1 {
-                    write!(f, "?");
+                    write!(f, "?").expect("Write failed!");
                 } else if *min == 0 && *max == std::u8::MAX {
-                    write!(f, "*");
+                    write!(f, "*").expect("Write failed!");
                 } else if *min == 1 && *max == std::u8::MAX {
-                    write!(f, "+");
+                    write!(f, "+").expect("Write failed!");
                 } else if *min == *max {
-                    write!(f, "{{{}}}", *min);
+                    write!(f, "{{{}}}", *min).expect("Write failed!");
                 } else {
-                    write!(f, "{{{},{}}}", *min, *max);
+                    write!(f, "{{{},{}}}", *min, *max).expect("Write failed!");
                 }
                 Ok(())
             }
@@ -260,10 +215,44 @@ where T:std::fmt::Debug,
     print!("{:?}", parent_node.data);
 }
 
-pub fn recurse_postfix<T>(arena: &Arena<T>, parent_node_id: &NodeId, string_buffer: &mut String) 
-where T:std::fmt::Debug,
-{
-    let parent_node: &Node<T> = &arena.nodes[parent_node_id.index];
+// pub fn recurse_postfix<T>(arena: &Arena<T>, parent_node_id: &NodeId, string_buffer: &mut String) 
+// where T:std::fmt::Debug,
+// {
+//     let parent_node: &Node<T> = &arena.nodes[parent_node_id.index];
+//     match &parent_node.left {
+//         Some(_) => {
+//             recurse_postfix(arena, parent_node.left.as_ref().unwrap(), string_buffer);
+//         }
+//         None => {
+//         }
+//     }
+//     match &parent_node.right {
+//         Some(_) => {
+//             recurse_postfix(arena, parent_node.right.as_ref().unwrap(), string_buffer);
+//         }
+//         None => {
+//         }
+//     }
+
+//     // DEBUG
+//     print!("{:?}", parent_node.data);
+
+//     // match parent_node.data {
+//     //     RegexBuildingBlock::CharacterLiteral(_) => {
+//     //         panic!("test");
+//     //     }
+//     //     _ => {
+//     //         // output to string buffer
+//     //         string_buffer.push_str(format!("{:?}", parent_node.data).as_str());
+//     //     }
+//     // }
+
+//     // output to string buffer
+//     string_buffer.push_str(format!("{:?}", parent_node.data).as_str());
+// }
+
+pub fn recurse_postfix(arena: &Arena<RegexBuildingBlock>, parent_node_id: &NodeId, string_buffer: &mut String) {
+    let parent_node: &Node<RegexBuildingBlock> = &arena.nodes[parent_node_id.index];
     match &parent_node.left {
         Some(_) => {
             recurse_postfix(arena, parent_node.left.as_ref().unwrap(), string_buffer);
@@ -278,9 +267,31 @@ where T:std::fmt::Debug,
         None => {
         }
     }
+
+    // DEBUG
     print!("{:?}", parent_node.data);
 
-    string_buffer.push_str(format!("{:?}", parent_node.data).as_str());
+    match parent_node.data {
+
+        // unescaped for processing, the special characters have to be escaped again for output
+        RegexBuildingBlock::CharacterLiteral(c) => {
+            match c {
+                '|' => { string_buffer.push_str("\\|"); }
+                '+' => { string_buffer.push_str("\\+"); }
+                '-' => { string_buffer.push_str("\\-"); }
+                '*' => { string_buffer.push_str("\\*"); }
+                '^' => { string_buffer.push_str("\\^"); }
+                _ => { string_buffer.push_str(format!("{:?}", parent_node.data).as_str()); }
+            }
+        }
+        _ => {
+            // output to string buffer
+            string_buffer.push_str(format!("{:?}", parent_node.data).as_str());
+        }
+    }
+    
+    // output to string buffer
+    //string_buffer.push_str(format!("{:?}", parent_node.data).as_str());
 }
 
 pub fn descend_into_concatenation_right_side(arena: &Arena<RegexBuildingBlock>, start_node_id: &NodeId) -> NodeId {
@@ -295,13 +306,11 @@ pub fn descend_into_concatenation_right_side(arena: &Arena<RegexBuildingBlock>, 
                         node_id = right_node_id.clone();
                     }
                     _ => {
-                        //node_id.clone()
                         break;
                     }
                 }
             }
             None => {
-                //node_id.clone()
                 break;
             }
         }
@@ -310,25 +319,83 @@ pub fn descend_into_concatenation_right_side(arena: &Arena<RegexBuildingBlock>, 
     node_id
 }
 
-pub fn concat_right_side(arena: &mut Arena<RegexBuildingBlock>, node_id: &NodeId, regexBB: RegexBuildingBlock) -> usize {
+pub fn replace_parent_of_right_child(arena: &mut Arena<RegexBuildingBlock>, node_id: &NodeId, regex_building_block: RegexBuildingBlock) {
 
-    // Get the next free index
+    // get the next free index
     let next_index = arena.nodes.len();
 
-    // Push the node into the arena
+    // push the node into the arena
     arena.nodes.push(Node {
-        parent: None,
         left: None,
         right: None,
-        data: regexBB,
+        data: regex_building_block,
     });
 
-    // Get the next free index
+    // get node_id of right child
+    let right_child_node_id = arena.nodes[node_id.index].right.unwrap().index;
+
+    // insert new right child
+    // arena.nodes[node_id.index].right.unwrap().index = next_index;
+    arena.nodes[node_id.index].right = Some ( NodeId { index: next_index } );
+
+    // insert old child into left side of new child
+    arena.nodes[next_index].left = Some ( NodeId { index: right_child_node_id } );
+
+}
+
+// build a new concatenation node and return it's id as the first touple element
+// make that new concatenation the parent of the old node (left-child) and the specified RegexBuildingBlock, right side
+// return the id of the new node for the regex building block as the second touple element
+pub fn new_concat_root(arena: &mut Arena<RegexBuildingBlock>, node_id: &NodeId, regex_building_block: RegexBuildingBlock) -> (usize, usize) {
+
+    // get the next free index
+    let next_index = arena.nodes.len();
+
+    // push the node into the arena
+    arena.nodes.push(Node {
+        // parent: None,
+        left: None,
+        right: None,
+        data: RegexBuildingBlock::Concatenation,
+    });
+
+    // get the next free index
+    let regex_bb_index = arena.nodes.len();
+
+    // push the node into the arena
+    arena.nodes.push(Node {
+        // parent: None,
+        left: None,
+        right: None,
+        data: regex_building_block,
+    });
+
+    arena.nodes[next_index].left = Some ( NodeId { index: node_id.index } );
+    arena.nodes[next_index].right = Some ( NodeId { index: regex_bb_index } );
+
+    (next_index, regex_bb_index)
+}
+
+// add a new concatenation node as right child into node_id and place the old right child and the regex_building_block as left and right children into the concatenation
+pub fn concat_right_side(arena: &mut Arena<RegexBuildingBlock>, node_id: &NodeId, regex_building_block: RegexBuildingBlock) -> usize {
+
+    // get the next free index
+    let next_index = arena.nodes.len();
+
+    // push the node into the arena
+    arena.nodes.push(Node {
+        // parent: None,
+        left: None,
+        right: None,
+        data: regex_building_block,
+    });
+
+    // get the next free index
     let concat_index = arena.nodes.len();
 
-    // Push the node into the arena
+    // push the node into the arena
     arena.nodes.push(Node {
-        parent: None,
+        // parent: None,
         left: None,
         right: None,
         data: RegexBuildingBlock::Concatenation,
@@ -356,50 +423,1163 @@ pub fn concat_right_side(arena: &mut Arena<RegexBuildingBlock>, node_id: &NodeId
     next_index
 }
 
-pub fn infix_to_postfix(regex_infix: &str) -> String {
+pub struct InfixPostfixConverter {
+    arena: Arena<RegexBuildingBlock>,
+    root_node_id: NodeId,
+    character_class_mode: bool,
+    repeat_mode: bool,
+    character_start_option: Option<char>,
+    character_end_option: Option<char>,
+    left: bool,
+    root_index: usize,
+    root_stack: Vec<NodeId>,
+    escaped_sequence: bool,
+}
 
-    let mut arena: Arena<RegexBuildingBlock> = Arena::new();
-    // let mut root_node_id: NodeId = arena.new_node(1);
-    let mut root_node_id: NodeId = NodeId {
-        index: 0
-    };
+impl InfixPostfixConverter {
 
-    let mut character_class_mode: bool = false; // for [a-z]
-    let mut repeat_mode: bool = false; // for {2}, {3,4}
+    pub fn new() -> Self {
+        Self {
+            arena: Arena::new(),
+            root_node_id: NodeId {
+                index: 0
+            },
+            character_class_mode: false,
+            repeat_mode: false,
+            character_start_option: None,
+            character_end_option: None,
+            left: true,
+            root_index: 0,
+            root_stack: vec![NodeId { index: 0 }; 10], // for large expressions, this stack will be too small. Adjust it.
+            escaped_sequence: false,
+        }
+    }
 
-    let mut character_start_option: Option<char> = None;
-    let mut character_end_option: Option<char> = None;
+    pub fn process_literal_character(&mut self, c: char) {
 
-    // let mut recombine: u8 = 0;
-    // let mut current_recombine: u8 = 0;
+        // if in bracket_mode build up the character class operator with start and end node
+        if self.character_class_mode { // e.g. [a-z]
+            if !c.is_alphanumeric() {
+                panic!("Range border in repeat operator is not a numeric character!");
+            }
+            if self.character_start_option.is_none() {
+                self.character_start_option = Some(c);
+            } else {
+                self.character_end_option = Some(c);
+            }
+        } else if self.repeat_mode { // e.g {3}, {2,4}
+            if !c.is_numeric() && c != ',' {
+                panic!("Range border in repeat operator is not a numeric character!");
+            }
+            if self.character_start_option.is_none() {
+                self.character_start_option = Some(c);
+                self.character_end_option = Some(c);
+            } else {
+                self.character_end_option = Some(c);
+            }
+        } else {
+            let character_literal = RegexBuildingBlock::CharacterLiteral(c);
+            if self.arena.is_empty() {
+                self.root_node_id = self.arena.new_node(character_literal);
+            } else {
+    
+                let mut inserted: bool = false;
+                let mut update_root_node_id: bool = true;
+    
+                let mut last_node_id: NodeId = self.root_node_id.clone();
+                let mut node_id: NodeId = self.root_node_id.clone();
+    
+                while !inserted {
+                
+                    let root_value = self.arena.get_payload(&node_id);
+                    match root_value {
 
-    let mut left: bool = true;
+                        RegexBuildingBlock::Not => {
+                            let node_id_option = self.arena.get_right_id(&node_id);
+    
+                            match node_id_option {
+                                Some(right_child_node_id) => {
+                                    
+                                    // self.left = false;
+                                    // last_node_id = node_id.clone();
+                                    // node_id = right_child_node_id.clone();
+                                    // update_root_node_id = false;
+                                    // inserted = false;
 
-    println!("Input: {}", regex_infix);
+                                    // concatenate instead of descend
+                                    let res = new_concat_root(&mut self.arena, &node_id, character_literal);
+                                    self.root_stack[self.root_index].index = res.0;
 
-    let mut root_index: usize = 0;
-    let mut root_stack:Vec<NodeId> = Vec::new();
-    root_stack.push(NodeId { index: 0 });
-    root_stack.push(NodeId { index: 0 });
-    root_stack.push(NodeId { index: 0 });
-    root_stack.push(NodeId { index: 0 });
-    root_stack.push(NodeId { index: 0 });
-    root_stack.push(NodeId { index: 0 });
-    root_stack.push(NodeId { index: 0 });
+                                    // self.root_index = self.root_index + 1;
+                                    // self.root_stack[self.root_index].index = res.1;
 
-    let mut chars = regex_infix.chars().fuse();
-    while let Some(c) = chars.next() {
+                                    inserted = true;
 
-        // current_recombine = 0;
+                                    // panic!("test");
+                                }
+                                None => {
+                                    self.arena.add_right(&node_id, character_literal);
+    
+                                    inserted = true;
+                                }
+                            }
+                        }
+    
+                        RegexBuildingBlock::OpeningBraces => {
+                            
+                            let node_id_option = self.arena.get_right_id(&node_id);
+    
+                            match node_id_option {
+                                Some(right_child_node_id) => {
+                                    
+                                    self.left = false;
+    
+                                    last_node_id = node_id.clone();
+    
+                                    node_id = right_child_node_id.clone();
+    
+                                    update_root_node_id = false;
+                                    inserted = false;
+                                }
+                                None => {
+                                    self.arena.add_right(&node_id, character_literal);
+    
+                                    inserted = true;
+                                }
+                            }
+                        }
+    
+                        RegexBuildingBlock::ClosingBraces => {}
+    
+                        RegexBuildingBlock::ClosedBraces => {
+                            println!("ClosedBraces");
+    
+                            let concat_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Concatenation);
+                            
+                            // insert old node into the left side of new node
+                            self.arena.insert_left(&concat_node_id, node_id.clone());
+    
+                            // insert new literal into the right side
+                            self.arena.add_right(&concat_node_id, character_literal);
+    
+                            // new node becomes root node
+                            if update_root_node_id {
+                                self.root_node_id.index = concat_node_id.index;
+                                self.root_stack[self.root_index].index = concat_node_id.index;
+                            } else {
+                                self.arena.insert_right(&last_node_id, concat_node_id.clone());
+                            }
+    
+                            inserted = true;
+                        }
+    
+                        RegexBuildingBlock::Concatenation => {
+                            let new_root_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Concatenation);
+                            // insert old node into the left side of new node
+                            self.arena.insert_left(&new_root_node_id, node_id.clone());
+    
+                            // insert new literal into the right side
+                            self.arena.add_right(&new_root_node_id, character_literal);
+    
+                            // new node becomes root node
+                            if update_root_node_id {
+                                self.root_node_id.index = new_root_node_id.index;
+                                self.root_stack[self.root_index].index = new_root_node_id.index;
+                            } else {
+                                self.arena.insert_right(&last_node_id, new_root_node_id.clone());
+                            }
+    
+                            inserted = true;
+                        }
+    
+                        RegexBuildingBlock::CharacterLiteral(_) | RegexBuildingBlock::CharacterClass(_, _) => {
+    
+                            let concatenation_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Concatenation);
+                            // insert old node into the left side of new node
+                            self.arena.insert_left(&concatenation_node_id, node_id.clone());
+    
+                            // insert new literal into the right side
+                            self.arena.add_right(&concatenation_node_id, character_literal);
+                            
+                            if update_root_node_id {
+                                // new node becomes root node
+                                self.root_node_id.index = concatenation_node_id.index;
+                                self.root_stack[self.root_index].index = concatenation_node_id.index;
+                            } else {
+                                if self.left {
+                                    self.arena.insert_left(&last_node_id, concatenation_node_id.clone());
+                                } else {
+                                    self.arena.insert_right(&last_node_id, concatenation_node_id.clone());
+                                }
+                            }
+    
+                            inserted = true;
+                        }
+    
+                        RegexBuildingBlock::Repeat(_min, _max) => {
+    
+                            let new_root_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Concatenation);
+                            // insert old node into the left side of new node
+                            self.arena.insert_left(&new_root_node_id, node_id.clone());
+    
+                            // insert new literal into the right side
+                            self.arena.add_right(&new_root_node_id, character_literal);
+    
+                            if node_id.index == self.root_node_id.index {
+                                // new node becomes root node
+                                self.root_node_id.index = new_root_node_id.index;
+                                self.root_stack[self.root_index].index = new_root_node_id.index;
+                            } else {
+                                self.arena.insert_right(&last_node_id, new_root_node_id.clone());
+                            }
+    
+                            inserted = true;
+                        }
+    
+                        RegexBuildingBlock::Or => {
+    
+                            let node_id_option = self.arena.get_right_id(&node_id);
+                            match node_id_option {
+    
+                                Some(right_child_node_id) => {
+                                    
+                                    self.left = false;
+    
+                                    last_node_id = node_id.clone();
+    
+                                    node_id = right_child_node_id.clone();
+    
+                                    update_root_node_id = false;
+                                    inserted = false;
+                                }
+                                None => {
+                                    // insert new literal into the right side
+                                    self.arena.add_right(&node_id, character_literal);
+    
+                                    inserted = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
-        root_node_id = root_stack[root_index].clone();
+    pub fn infix_to_postfix(&mut self, regex_infix: &str) -> String {
+
+        let mut chars = regex_infix.chars().fuse();
+        while let Some(c) = chars.next() {
+
+            //
+            // Escaped sequences
+            // 
+
+            if c == '\\' {
+                self.escaped_sequence = true;
+                continue;
+            }
+
+            self.root_node_id = self.root_stack[self.root_index].clone();
+
+            // DEBUG
+            println!("");
+            println!("{}", c);
+            if !self.arena.is_empty() {
+                println!("root id: {:?}", self.root_node_id.index);
+                for (pos, e) in self.arena.nodes.iter().enumerate() {
+                    println!("Node {}, value: {:?}", pos, e.data);
+                    match &e.left {
+                        Some(_) => {
+                            println!("    Left {}", e.left.as_ref().unwrap().index);
+                        }
+                        None => {
+                        }
+                    }
+                    match &e.right {
+                        Some(_) => {
+                            println!("    Right {}", e.right.as_ref().unwrap().index);
+                        }
+                        None => {
+                        }
+                    }
+                }
+            }
+
+            if self.escaped_sequence {
+                self.escaped_sequence = false;
+
+                match c {
+                    'n' => { self.process_literal_character('\n'); }
+                    'r' => { self.process_literal_character('\r'); }
+                    't' => { self.process_literal_character('\t'); }
+                    '|' => { self.process_literal_character('|'); }
+                    '-' => { self.process_literal_character('-'); }
+                    '+' => { self.process_literal_character('+'); }
+                    '*' => { self.process_literal_character('*'); }
+                    '^' => { self.process_literal_character('^'); }
+                    //'s' => { self.process_literal_character(r"\s"); }
+                    _ => { panic!("test"); }
+                }
+
+                continue;
+            }
+
+            match c {
+
+                // '!' => { panic!(); }
+
+                '^' => {
+
+                    if self.arena.is_empty() {
+
+                        self.root_node_id = self.arena.new_node(RegexBuildingBlock::Not);
+                        self.root_stack[self.root_index] = self.root_node_id.clone();
+
+                    } else {
+
+                        let mut inserted: bool = false;
+                        let mut update_root_node_id: bool = true;
+            
+                        let mut last_node_id: NodeId = self.root_node_id.clone();
+                        let mut node_id: NodeId = self.root_node_id.clone();
+            
+                        while !inserted {
+                        
+                            let root_value = self.arena.get_payload(&node_id);
+                            match root_value {
+
+                                RegexBuildingBlock::CharacterClass(_, _) | RegexBuildingBlock::Concatenation => {
+
+                                    // applied at root
+                                    if node_id.index == self.root_node_id.index {
+
+                                        let res = new_concat_root(&mut self.arena, &node_id, RegexBuildingBlock::Not);
+
+                                        self.root_stack[self.root_index].index = res.0;
+
+                                        // not becomes the new root
+                                        self.root_index = self.root_index + 1;
+                                        self.root_stack[self.root_index].index = res.1;
+
+                                        inserted = true;
+
+                                    } else {
+
+                                        let id = concat_right_side(&mut self.arena, &last_node_id, RegexBuildingBlock::Not);
+
+                                        // not becomes the new root
+                                        self.root_index = self.root_index + 1;
+                                        self.root_stack[self.root_index].index = id;
+
+                                        inserted = true;
+
+                                    }
+                                }
+
+                                _ => { panic!("test: {} meets {:?}", c, root_value); }
+
+                            }
+
+                        }
+                        
+                    }
+                }
+
+                // # not allowed in regex format
+                '#' => { panic!(); }
+
+                '+' | '*' | '?' => {
+
+                    let mut min:u8 = 0;
+                    let mut max:u8 = std::u8::MAX;
+                    if c == '+' {
+                        min = 1;
+                    }
+                    if c == '?' {
+                        min = 0;
+                        max = 1;
+                    }
+                    let repeat = RegexBuildingBlock::Repeat(min, max);
+
+                    if self.arena.is_empty() {
+                        panic!("illegal");
+                    } else {
+
+                        let mut inserted: bool = false;
+                        let mut update_root_node_id: bool = true;
+
+                        let mut last_node_id: NodeId = self.root_node_id.clone();
+                        let mut node_id: NodeId = self.root_node_id.clone();
+
+                        while !inserted {
+
+                            let root_value = self.arena.get_payload(&node_id);
+                            match root_value {
+
+                                RegexBuildingBlock::Not => {
+                                    // applied at root
+                                    if node_id.index == self.root_node_id.index {
+
+                                        let res = new_concat_root(&mut self.arena, &node_id, RegexBuildingBlock::Not);
+
+                                        self.root_stack[self.root_index].index = res.0;
+
+                                        // not becomes the new root
+                                        self.root_index = self.root_index + 1;
+                                        self.root_stack[self.root_index].index = res.1;
+
+                                        inserted = true;
+
+                                    } else {
+
+                                        let id = concat_right_side(&mut self.arena, &last_node_id, RegexBuildingBlock::Not);
+
+                                        // not becomes the new root
+                                        self.root_index = self.root_index + 1;
+                                        self.root_stack[self.root_index].index = id;
+
+                                        inserted = true;
+
+                                    }
+                                }
+
+                                RegexBuildingBlock::Concatenation => {
+
+                                    node_id = descend_into_concatenation_right_side(&self.arena, &node_id).clone();
+
+                                    // repeat is applied at the root of the tree
+                                    if node_id.index == self.root_node_id.index {
+
+                                        self.arena.change_payload(&node_id, repeat);
+
+                                        let concatenation_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Concatenation);
+
+                                        // insert old node into the left side of new node
+                                        self.arena.insert_left(&concatenation_node_id, node_id.clone());
+
+                                        // new node becomes root node
+                                        if update_root_node_id {
+                                            self.root_node_id.index = concatenation_node_id.index;
+                                            self.root_stack[self.root_index].index = concatenation_node_id.index;
+                                        }
+
+                                        inserted = true;
+
+                                    } else {
+
+                                        // repeat is applied in the middle of the tree
+                                        self.arena.insert_repeat_node_into_node(&node_id, repeat.clone());
+
+                                        inserted = true;
+                                    }
+                                }
+
+                                RegexBuildingBlock::OpeningBraces => {
+                                    let node_id_option = self.arena.get_right_id(&node_id);
+
+                                    match node_id_option {
+                                        Some(right_child_node_id) => {
+                                            last_node_id = node_id.clone();
+                                            node_id = right_child_node_id.clone();
+
+                                            update_root_node_id = false;
+                                            inserted = false;
+                                        }
+                                        None => {
+                                            panic!("test");
+                                        }
+                                    }
+                                }
+
+                                RegexBuildingBlock::ClosedBraces | RegexBuildingBlock::CharacterLiteral(_) | RegexBuildingBlock::CharacterClass(_, _) => {
+
+                                    // repeat is applied at the root of the tree
+                                    if node_id.index == self.root_node_id.index {
+
+                                        let new_root_node_id: NodeId = self.arena.new_node(repeat);
+
+                                        // insert old node into the left side of new node
+                                        self.arena.insert_left(&new_root_node_id, node_id.clone());
+
+                                        // new node becomes root node
+                                        if update_root_node_id {
+                                            self.root_node_id.index = new_root_node_id.index;
+                                            self.root_stack[self.root_index].index = new_root_node_id.index;
+                                        }
+
+                                        inserted = true;
+
+                                    } else {
+                                        // repeat is applied in the middle of the tree
+                                        self.arena.insert_repeat_node_into_node(&last_node_id, repeat.clone());
+
+                                        inserted = true;
+                                    }
+                                }
+
+                                RegexBuildingBlock::Or => {
+                                    let node_id_option = self.arena.get_right_id(&node_id);
+                                    match node_id_option {
+
+                                        Some(right_child_node_id) => {
+                                            
+                                            self.left = false;
+
+                                            last_node_id = node_id.clone();
+
+                                            node_id = right_child_node_id.clone();
+
+                                            update_root_node_id = false;
+                                            inserted = false;
+                                        }
+                                        None => {
+                                            panic!("error");
+                                        }
+                                    }
+                                }
+
+                                _ => { panic!("test: {} meets {:?}", c, root_value); }
+                            }
+                        }
+                    }
+                }
+                '{' => {
+                    if self.character_class_mode || self.repeat_mode {
+                        panic!("Illegal Syntax! Nested brackets!");
+                    }
+                    self.repeat_mode = true;
+                }
+                '}' => {
+                    if !self.repeat_mode {
+                        panic!("Illegal Syntax! '}}' used without opening brackets!");
+                    }
+
+                    if self.character_end_option == None {
+                        self.character_end_option = self.character_start_option;
+                    }
+
+                    let repeat = RegexBuildingBlock::Repeat(
+                        (self.character_start_option.unwrap() as u8 - 0x30) as u8, 
+                        (self.character_end_option.unwrap() as u8 - 0x30) as u8
+                    );
+
+                    if self.arena.is_empty() {
+                        self.root_node_id = self.arena.new_node(repeat);
+                    } else {
+                        let root_value = self.arena.get_payload(&self.root_node_id);
+                        match root_value {
+
+                            RegexBuildingBlock::Concatenation => {
+
+                                self.arena.change_payload(&self.root_node_id, repeat);
+
+                                let new_root_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Concatenation);
+
+                                // insert old node into the left side of new node
+                                self.arena.insert_left(&new_root_node_id, self.root_node_id.clone());
+
+                                // new node becomes root node
+                                self.root_node_id.index = new_root_node_id.index;
+                                self.root_stack[self.root_index].index = new_root_node_id.index;
+                            }
+
+                            RegexBuildingBlock::CharacterLiteral(_) | RegexBuildingBlock::CharacterClass(_, _) => {
+
+                                let new_root_node_id: NodeId = self.arena.new_node(repeat);
+                                // insert old node into the left side of new node
+                                self.arena.insert_left(&new_root_node_id, self.root_node_id.clone());
+
+                                // new node becomes root node
+                                self.root_node_id.index = new_root_node_id.index;
+                                self.root_stack[self.root_index].index = new_root_node_id.index;
+
+                            }
+
+                            _ => { panic!("NIY"); }
+                        }
+                    }
+
+                    self.character_start_option = None;
+                    self.character_end_option = None;
+                    self.repeat_mode = false;
+                }
+
+                //
+                // Character Class
+                //
+
+                '-' => {
+                    // // process the minus/dash as a literal character, if it has been escaped
+                    // // otherwise it is part of a character class and will not be processed in isolation
+                    // if self.escaped_sequence {
+                    //     self.escaped_sequence = false;
+                    //     self.process_literal_character(c);
+                    // }
+                }
+                '[' => {
+                    if self.character_class_mode || self.repeat_mode {
+                        panic!("Illegal Syntax! Nested brackets!");
+                    }
+                    self.character_class_mode = true;
+                }
+                ']' => { 
+                    if !self.character_class_mode {
+                        panic!("Illegal Syntax! ']' used without opening brackets!");
+                    }
+
+                    let character_class = RegexBuildingBlock::CharacterClass(self.character_start_option.unwrap(), self.character_end_option.unwrap());
+                    
+                    if self.arena.is_empty() {
+                        self.root_node_id = self.arena.new_node(character_class);
+                    } else {
+                        let root_value = self.arena.get_payload(&self.root_node_id);
+                        match root_value {
+
+                            RegexBuildingBlock::Not => {
+                                let node_id_option = self.arena.get_right_id(&self.root_node_id);
+        
+                                match node_id_option {
+                                    Some(right_child_node_id) => {
+                                        
+                                        // self.left = false;
+                                        // last_node_id = node_id.clone();
+                                        // node_id = right_child_node_id.clone();
+                                        // update_root_node_id = false;
+                                        // inserted = false;
+    
+                                        // concatenate instead of descend
+                                        let res = new_concat_root(&mut self.arena, &self.root_node_id, character_class);
+                                        self.root_stack[self.root_index].index = res.0;
+    
+                                        // ascend from not to old root
+                                        if self.root_index > 0 {
+                                            self.root_index = self.root_index - 1;
+                                        }
+
+                                        //self.root_index = self.root_index + 1;
+                                        //self.root_stack[self.root_index].index = res.index;
+        
+                                        //inserted = true;
+    
+                                        // panic!("test");
+                                    }
+                                    None => {
+                                        let res = self.arena.add_right(&self.root_node_id, character_class);
+
+                                        // ascend from not to old root
+                                        if self.root_index > 0 {
+                                            self.root_index = self.root_index - 1;
+                                        }
+
+                                        // self.root_index = self.root_index + 1;
+                                        // self.root_stack[self.root_index].index = res.index;
+        
+                                        //inserted = true;
+                                    }
+                                }
+                            }
+
+                            RegexBuildingBlock::CharacterLiteral(_) | RegexBuildingBlock::CharacterClass(_, _) | RegexBuildingBlock::Concatenation => {
+
+                                let new_root_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Concatenation);
+                                // insert old node into the left side of new node
+                                self.arena.insert_left(&new_root_node_id, self.root_node_id.clone());
+
+                                // insert new literal into the right side
+                                self.arena.add_right(&new_root_node_id, character_class);
+
+                                // new node becomes root node
+                                self.root_node_id.index = new_root_node_id.index;
+                                self.root_stack[self.root_index].index = new_root_node_id.index;
+                            }
+
+                            RegexBuildingBlock::Repeat(_min, _max) => {
+
+                                let new_root_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Concatenation);
+
+                                // insert old node into the left side of new node
+                                self.arena.insert_left(&new_root_node_id, self.root_node_id.clone());
+
+                                // insert new literal into the right side
+                                self.arena.add_right(&new_root_node_id, character_class);
+
+                                // new node becomes root node
+                                self.root_node_id.index = new_root_node_id.index;
+                                self.root_stack[self.root_index].index = new_root_node_id.index;
+                            }
+
+                            RegexBuildingBlock::OpeningBraces => {
+
+                                let mut inserted: bool = false;
+                                let mut update_root_node_id: bool = true;
+
+                                let mut last_node_id: NodeId = self.root_node_id.clone();
+                                let mut node_id: NodeId = self.root_node_id.clone();
+
+                                while !inserted {
+                                    let node_id_option = self.arena.get_right_id(&node_id);
+        
+                                    match node_id_option {
+
+                                        Some(right_child_node_id) => {
+                                            
+                                            self.left = false;
+
+                                            // update the pointers to the current tree node, move down one level
+                                            last_node_id = node_id.clone();
+                                            node_id = right_child_node_id.clone();
+            
+                                            // keep descending into the tree
+                                            update_root_node_id = false;
+                                            inserted = false;
+                                        }
+                                        None => {
+                                            self.arena.add_right(&node_id, character_class);
+            
+                                            inserted = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            RegexBuildingBlock::Or => {
+                                println!("test");
+
+                                let mut inserted: bool = false;
+                                let mut update_root_node_id: bool = true;
+
+                                let mut last_node_id: NodeId = self.root_node_id.clone();
+                                let mut node_id: NodeId = self.root_node_id.clone();
+
+                                while !inserted {
+                                    let node_id_option = self.arena.get_right_id(&node_id);
+        
+                                    match node_id_option {
+
+                                        Some(right_child_node_id) => {
+                                            
+                                            self.left = false;
+
+                                            // update the pointers to the current tree node, move down one level
+                                            last_node_id = node_id.clone();
+                                            node_id = right_child_node_id.clone();
+            
+                                            // keep descending into the tree
+                                            update_root_node_id = false;
+                                            inserted = false;
+                                        }
+                                        None => {
+                                            self.arena.add_right(&node_id, character_class);
+            
+                                            inserted = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            _ => { 
+                                panic!("NIY"); 
+                            }
+                        }
+                    }
+
+                    self.character_start_option = None;
+                    self.character_end_option = None;
+                    self.character_class_mode = false;
+                }
+
+                //
+                // braces
+                //
+
+                '(' => {
+
+                    if self.arena.is_empty() {
+
+                        self.root_node_id = self.arena.new_node(RegexBuildingBlock::OpeningBraces);
+                        self.root_stack[self.root_index] = self.root_node_id.clone();
+
+                    } else {
+
+                        let mut inserted: bool = false;
+                        let mut update_root_node_id: bool = true;
+
+                        let mut last_node_id: NodeId = self.root_node_id.clone();
+                        let mut node_id: NodeId = self.root_node_id.clone();
+
+                        while !inserted {
+
+                            let root_value = self.arena.get_payload(&node_id);
+                            match root_value {
+
+                                RegexBuildingBlock::Not => {
+                                    let node_id_option = self.arena.get_right_id(&node_id);
+            
+                                    match node_id_option {
+                                        Some(right_child_node_id) => {
+                                            
+                                            // self.left = false;
+                                            // last_node_id = node_id.clone();
+                                            // node_id = right_child_node_id.clone();
+                                            // update_root_node_id = false;
+                                            // inserted = false;
+        
+                                            // concatenate instead of descend
+                                            let res = new_concat_root(&mut self.arena, &node_id, RegexBuildingBlock::OpeningBraces);
+                                            self.root_stack[self.root_index].index = res.0;
+        
+                                            self.root_index = self.root_index + 1;
+                                            self.root_stack[self.root_index].index = res.1;
+        
+                                            inserted = true;
+        
+                                            // panic!("test");
+                                        }
+                                        None => {
+                                            let res = self.arena.add_right(&node_id, RegexBuildingBlock::OpeningBraces);
+
+                                            self.root_index = self.root_index + 1;
+                                            self.root_stack[self.root_index].index = res.index;
+            
+                                            inserted = true;
+                                        }
+                                    }
+                                }
+
+                                RegexBuildingBlock::OpeningBraces => {
+                                    let node_id_option = self.arena.get_right_id(&node_id);
+
+                                    match node_id_option {
+                                        Some(left_child_node_id) => {
+                                            last_node_id = node_id.clone();
+                                            node_id = left_child_node_id.clone();
+
+                                            update_root_node_id = false;
+                                            inserted = false;
+                                        }
+                                        None => {
+                                            self.arena.add_right(&node_id, RegexBuildingBlock::OpeningBraces);
+
+                                            inserted = true;
+                                        }
+                                    }
+                                }
+
+                                RegexBuildingBlock::ClosedBraces => {
+
+                                    // opening brace meets closed braces: () <- (
+                                    // (a)(b)
+
+                                    // applied at root
+                                    if node_id.index == self.root_node_id.index {
+
+                                        let res = new_concat_root(&mut self.arena, &node_id, RegexBuildingBlock::OpeningBraces);
+
+                                        self.root_stack[self.root_index].index = res.0;
+
+                                        self.root_index = self.root_index + 1;
+                                        self.root_stack[self.root_index].index = res.1;
+
+                                        inserted = true;
+
+                                    } else {
+
+                                        let id = concat_right_side(&mut self.arena, &last_node_id, RegexBuildingBlock::OpeningBraces);
+
+                                        self.root_index = self.root_index + 1;
+                                        self.root_stack[self.root_index].index = id;
+
+                                        inserted = true;
+
+                                    }
+                                }
+
+                                RegexBuildingBlock::CharacterLiteral(_c) => {
+
+                                    let concat_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Concatenation);
+                                    // insert old node into the left side of new node
+                                    self.arena.insert_left(&concat_node_id, node_id.clone());
+
+                                    // insert new literal into the right side
+                                    let right_node_id = self.arena.add_right(&concat_node_id, RegexBuildingBlock::OpeningBraces);
+
+                                    // new node becomes root node
+                                    if update_root_node_id {
+                                        self.root_node_id.index = concat_node_id.index;
+                                        self.root_stack[self.root_index].index = concat_node_id.index;
+                                    } else {
+                                        self.arena.insert_right(&last_node_id, concat_node_id.clone());
+                                    }
+
+                                    self.root_index = self.root_index + 1;
+                                    self.root_stack[self.root_index] = right_node_id.clone();
+
+                                    inserted = true;
+                                }
+
+                                RegexBuildingBlock::Or => {
+                                    let node_id_option = self.arena.get_right_id(&node_id);
+                                    match node_id_option {
+
+                                        Some(right_child_node_id) => {
+                                            
+                                            self.left = false;
+
+                                            last_node_id = node_id.clone();
+
+                                            node_id = right_child_node_id.clone();
+
+                                            update_root_node_id = false;
+                                            inserted = false;
+                                        }
+                                        None => {
+                                            // insert new literal into the right side
+                                            let child_node_id = self.arena.add_right(&node_id, RegexBuildingBlock::OpeningBraces);
+
+                                            self.root_index = self.root_index + 1;
+                                            self.root_stack[self.root_index] = child_node_id.clone();
+
+                                            inserted = true;
+                                        }
+                                    }
+                                }
+
+                                _ => {
+
+                                    // CHANGE
+                                    // let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::OpeningBraces);
+                                    // // insert old node into the left side of new node
+                                    // arena.insert_left(&new_root_node_id, root_node_id.clone());
+                                    // // new node becomes root node
+                                    // root_node_id.index = new_root_node_id.index;
+
+                                    let concat_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Concatenation);
+                                    // insert old node into the left side of new node
+                                    self.arena.insert_left(&concat_node_id, node_id.clone());
+
+                                    // insert new literal into the right side
+                                    let opening_braces_id = self.arena.add_right(&concat_node_id, RegexBuildingBlock::OpeningBraces);
+
+                                    // new node becomes root node
+                                    if update_root_node_id {
+                                        self.root_node_id.index = concat_node_id.index;
+                                        self.root_stack[self.root_index].index = concat_node_id.index;
+                                    } else {
+                                        self.arena.insert_right(&last_node_id, concat_node_id.clone());
+                                    }
+
+                                    inserted = true;
+
+                                    self.root_index = self.root_index + 1;
+                                    self.root_stack[self.root_index] = opening_braces_id.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ')' => {
+                    if self.arena.is_empty() {
+                        panic!("invalid!");
+                    } else {
+
+                        let mut inserted: bool = false;
+                        let mut node_id: NodeId = self.root_node_id.clone();
+
+                        while !inserted {
+
+                            let root_value = self.arena.get_payload(&node_id);
+                            match root_value {
+
+                                RegexBuildingBlock::Concatenation => {
+
+                                    let node_id_option = self.arena.get_right_id(&node_id);
+                                    match node_id_option {
+                                        Some(right_child_node_id) => {
+                                            node_id = right_child_node_id.clone();
+
+                                            inserted = false;
+                                        }
+                                        None => {
+                                            panic!("test");
+                                        }
+                                    }
+                                }
+
+                                RegexBuildingBlock::OpeningBraces => {
+
+                                    self.arena.change_payload(&node_id, RegexBuildingBlock::ClosedBraces);
+                                    inserted = true;
+
+                                    // ascend out if braces and over NOT operators
+                                    while self.root_index > 0 {
+                                        self.root_index = self.root_index - 1;
+                                        match self.arena.get_payload(&self.root_stack[self.root_index]) {
+                                            RegexBuildingBlock::Not => { }
+                                            _ => { break; }
+                                        }
+                                    }
+                                }
+
+                                RegexBuildingBlock::Or => {
+                                    let node_id_option = self.arena.get_right_id(&node_id);
+                                    match node_id_option {
+                                        Some(right_child_node_id) => {
+                                            node_id = right_child_node_id.clone();
+
+                                            inserted = false;
+                                        }
+                                        None => {
+                                            panic!("test");
+                                        }
+                                    }
+                                }
+
+                                _ => { 
+                                    panic!("invalid"); 
+                                }
+                            }
+                        }
+                    }
+                }
+
+                '|' => {
+
+                    let mut inserted: bool = false;
+
+                    let mut last_node_id: NodeId = self.root_node_id.clone();
+                    let mut node_id: NodeId = self.root_node_id.clone();
+
+                    while !inserted {
+
+                        let root_value = self.arena.get_payload(&node_id);
+                        match root_value {
+
+                            RegexBuildingBlock::Repeat(_min, _max) => {
+
+                                let new_root_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Or);
+                                // insert old node into the left side of new node
+                                self.arena.insert_left(&new_root_node_id, self.root_node_id.clone());
+
+                                // new node becomes root node
+                                self.root_node_id.index = new_root_node_id.index;
+                                self.root_stack[self.root_index].index = new_root_node_id.index;
+
+                                inserted = true;
+                            }
+
+                            RegexBuildingBlock::CharacterLiteral(_) | RegexBuildingBlock::CharacterClass(_, _) | RegexBuildingBlock::Concatenation => {
+
+                                // OR is applied at the root of the tree
+                                if node_id.index == self.root_node_id.index {
+
+                                    let new_root_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Or);
+
+                                    // insert old node into the left side of new node
+                                    self.arena.insert_left(&new_root_node_id, node_id.clone());
+
+                                    // new node becomes root node
+                                    self.root_node_id.index = new_root_node_id.index;
+                                    self.root_stack[self.root_index].index = new_root_node_id.index;
+
+                                    inserted = true;
+                                } else {
+                                    replace_parent_of_right_child(&mut self.arena, &last_node_id, RegexBuildingBlock::Or);
+                                    inserted = true;
+                                }
+                            }
+
+                            RegexBuildingBlock::Or => {
+
+                                // OR is applied at the root of the tree
+                                if node_id.index == self.root_node_id.index {
+
+                                    let new_root_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Or);
+
+                                    // insert old node into the left side of new node
+                                    self.arena.insert_left(&new_root_node_id, node_id.clone());
+
+                                    // new node becomes root node
+                                    self.root_node_id.index = new_root_node_id.index;
+                                    self.root_stack[self.root_index].index = new_root_node_id.index;
+
+                                    inserted = true;
+                                } else {
+                                    replace_parent_of_right_child(&mut self.arena, &last_node_id, RegexBuildingBlock::Or);
+                                    inserted = true;
+                                }
+                            }
+
+                            RegexBuildingBlock::OpeningBraces => {
+                                let node_id_option = self.arena.get_right_id(&node_id);
+
+                                match node_id_option {
+                                    Some(left_child_node_id) => {
+                                        last_node_id = node_id.clone();
+                                        node_id = left_child_node_id.clone();
+
+                                        // update_root_node_id = false;
+                                        inserted = false;
+                                    }
+                                    None => {
+                                        self.arena.add_right(&node_id, RegexBuildingBlock::OpeningBraces);
+
+                                        inserted = true;
+                                    }
+                                }
+                            }
+
+                            RegexBuildingBlock::ClosedBraces => {
+                                // OR is applied at the root of the tree
+                                if node_id.index == self.root_node_id.index {
+
+                                    let new_root_node_id: NodeId = self.arena.new_node(RegexBuildingBlock::Or);
+
+                                    // insert old node into the left side of new node
+                                    self.arena.insert_left(&new_root_node_id, node_id.clone());
+
+                                    // new node becomes root node
+                                    self.root_node_id.index = new_root_node_id.index;
+                                    self.root_stack[self.root_index].index = new_root_node_id.index;
+
+                                    inserted = true;
+                                } else {
+                                    panic!("test");
+                                }
+                            }
+
+                            _ => {
+                                panic!("test");
+                            }
+                        }
+                    }
+                }
+
+                _ => {
+
+                    // if self.escaped_sequence {
+                    //     match c {
+                    //         'n' => { self.process_literal_character('\n'); }
+                    //         'r' => { self.process_literal_character('\r'); }
+                    //         't' => { self.process_literal_character('\t'); }
+                    //         '|' => { self.process_literal_character('|'); }
+                    //         //'s' => { self.process_literal_character(r"\s"); }
+                    //         _ => { panic!("test"); }
+                    //     }
+                    // } else {
+                        self.process_literal_character(c);
+                    // }
+                }
+            }
+        }
 
         // DEBUG
+        self.root_node_id = self.root_stack[self.root_index].clone();
         println!("");
-        println!("{}", c);
-        if !arena.is_empty() {
-            println!("root id: {:?}", root_node_id.index);
-            for (pos, e) in arena.nodes.iter().enumerate() {
+        if !self.arena.is_empty() {
+            println!("root id: {:?}", self.root_node_id.index);
+            for (pos, e) in self.arena.nodes.iter().enumerate() {
                 println!("Node {}, value: {:?}", pos, e.data);
                 match &e.left {
                     Some(_) => {
@@ -418,913 +1598,105 @@ pub fn infix_to_postfix(regex_infix: &str) -> String {
             }
         }
 
-        match c {
-
-            '!' => { panic!(); }
-
-            // # not allowed in regex format
-            '#' => { panic!(); }
-
-            '+' | '*' | '?' => {
-                let mut min:u8 = 0;
-                let mut max:u8 = std::u8::MAX;
-                if c == '+' {
-                    min = 1;
-                }
-                if c == '?' {
-                    min = 0;
-                    max = 1;
-                }
-                let mut repeat = RegexBuildingBlock::Repeat(min, max);
-
-                if arena.is_empty() {
-                    panic!("illegal");
-                } else {
-
-                    let mut inserted: bool = false;
-                    let mut update_root_node_id: bool = true;
-
-                    let mut last_node_id: NodeId = root_node_id.clone();
-                    let mut node_id: NodeId = root_node_id.clone();
-
-                    while !inserted {
-
-                        let root_value = arena.get_payload(&node_id);
-                        match root_value {
-
-                            RegexBuildingBlock::Concatenation => {
-
-                                node_id = descend_into_concatenation_right_side(&arena, &node_id).clone();
-
-                                // let mut bottom_reached: bool = false;
-                                // while !bottom_reached {
-                                //     // check if right node is #
-                                //     match arena.get_payload(&arena.get_right_id(&node_id).unwrap()) {
-                                //         RegexBuildingBlock::Concatenation => {
-                                //             node_id = arena.get_right_id(&node_id).unwrap().clone();
-                                //         }
-                                //         _ => { bottom_reached = true; }
-                                //     }
-                                // }
-
-                                // repeat is applied at the root of the tree
-                                if node_id.index == root_node_id.index {
-
-                                    arena.change_payload(&node_id, repeat);
-
-                                    let concatenation_node_id: NodeId = arena.new_node(RegexBuildingBlock::Concatenation);
-
-                                    // insert old node into the left side of new node
-                                    arena.insert_left(&concatenation_node_id, node_id.clone());
-                                    //arena.insert_right(&concatenation_node_id, node_id.clone());
-
-                                    // // insert new literal into the right side
-                                    // arena.add_right(&new_root_node_id, repeat);
-
-                                    // new node becomes root node
-                                    if update_root_node_id {
-                                        root_node_id.index = concatenation_node_id.index;
-                                        root_stack[root_index].index = concatenation_node_id.index;
-                                    }
-
-                                    inserted = true;
-
-                                } else {
-
-                                    // repeat is applied in the middle of the tree
-                                    arena.insert_repeat_node_into_node(&node_id, repeat.clone());
-
-                                    inserted = true;
-                                }
-                            }
-
-                            RegexBuildingBlock::OpeningBraces => {
-                                // CHANGE
-                                //let node_id_option = arena.get_left_id(&node_id);
-                                let node_id_option = arena.get_right_id(&node_id);
-
-                                match node_id_option {
-                                    Some(right_child_node_id) => {
-                                        last_node_id = node_id.clone();
-                                        node_id = right_child_node_id.clone();
-
-                                        update_root_node_id = false;
-                                        inserted = false;
-                                    }
-                                    None => {
-                                        panic!("test");
-                                    }
-                                }
-                                
-                            }
-
-                            RegexBuildingBlock::ClosedBraces | RegexBuildingBlock::CharacterLiteral(_) | RegexBuildingBlock::CharacterClass(_, _) => {
-
-                                // CHANGE_2 -- needed for (d+c*) but breaks all other tests
-                                // e.g. breaks test 4:  a+
-
-                                // repeat is applied at the root of the tree
-                                if node_id.index == root_node_id.index {
-
-                                    // arena.change_payload(&node_id, repeat);
-
-                                    // let concatenation_node_id: NodeId = arena.new_node(repeat.clone());
-
-                                    // // insert old node into the left side of new node
-                                    // arena.insert_left(&concatenation_node_id, node_id.clone());
-                                    // //arena.insert_right(&concatenation_node_id, node_id.clone());
-
-                                    // // // insert new literal into the right side
-                                    // // arena.add_right(&new_root_node_id, repeat);
-
-                                    // // new node becomes root node
-                                    // if update_root_node_id {
-                                    //     root_node_id.index = concatenation_node_id.index;
-                                    //     root_stack[root_index].index = concatenation_node_id.index;
-                                    // }
-
-                                    let new_root_node_id: NodeId = arena.new_node(repeat);
-
-                                    // insert old node into the left side of new node
-                                    arena.insert_left(&new_root_node_id, node_id.clone());
-
-                                    // new node becomes root node
-                                    if update_root_node_id {
-                                        root_node_id.index = new_root_node_id.index;
-                                        root_stack[root_index].index = new_root_node_id.index;
-                                    }
-
-                                    inserted = true;
-
-                                } else {
-                                    // repeat is applied in the middle of the tree
-                                    arena.insert_repeat_node_into_node(&last_node_id, repeat.clone());
-
-                                    inserted = true;
-                                }
-
-                            }
-
-                            RegexBuildingBlock::Or => {
-                                let node_id_option = arena.get_right_id(&node_id);
-                                match node_id_option {
-
-                                    Some(right_child_node_id) => {
-                                        
-                                        // CHANGE
-                                        //left = true;
-                                        left = false;
-
-                                        last_node_id = node_id.clone();
-
-                                        // CHANGE
-                                        //node_id = left_child_node_id.clone();
-                                        node_id = right_child_node_id.clone();
-
-                                        update_root_node_id = false;
-                                        inserted = false;
-                                    }
-                                    None => {
-                                        panic!("error");
-                                    }
-                                }
-                            }
-
-                            _ => { panic!("NYI"); }
-                        }
-                    }
-                }
-            }
-            '{' => {
-                if character_class_mode || repeat_mode {
-                    panic!("Illegal Syntax! Nested brackets!");
-                }
-                repeat_mode = true;
-            }
-            '}' => {
-                if !repeat_mode {
-                    panic!("Illegal Syntax! '}}' used without opening brackets!");
-                }
-
-                if character_end_option == None {
-                    character_end_option = character_start_option;
-                }
-
-                let mut repeat = RegexBuildingBlock::Repeat(
-                    (character_start_option.unwrap() as u8 - 0x30) as u8, 
-                    (character_end_option.unwrap() as u8 - 0x30) as u8
-                );
-
-                if arena.is_empty() {
-                    root_node_id = arena.new_node(repeat);
-                } else {
-                    let root_value = arena.get_payload(&root_node_id);
-                    match root_value {
-
-                        RegexBuildingBlock::Concatenation => {
-
-                            arena.change_payload(&root_node_id, repeat);
-
-                            let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::Concatenation);
-
-                            // insert old node into the left side of new node
-                            arena.insert_left(&new_root_node_id, root_node_id.clone());
-
-                            // // insert new literal into the right side
-                            // arena.add_right(&new_root_node_id, repeat);
-
-                            // new node becomes root node
-                            root_node_id.index = new_root_node_id.index;
-                            root_stack[root_index].index = new_root_node_id.index;
-                        }
-
-                        RegexBuildingBlock::CharacterLiteral(_) | RegexBuildingBlock::CharacterClass(_, _) => {
-
-                            let new_root_node_id: NodeId = arena.new_node(repeat);
-                            // insert old node into the left side of new node
-                            arena.insert_left(&new_root_node_id, root_node_id.clone());
-
-                            // new node becomes root node
-                            root_node_id.index = new_root_node_id.index;
-                            root_stack[root_index].index = new_root_node_id.index;
-
-                        }
-
-                        _ => { panic!("NIY"); }
-                    }
-                }
-
-                character_start_option = None;
-                character_end_option = None;
-                repeat_mode = false;
-            }
-
-            //
-            // Character Class
-            //
-
-            '-' => {}
-            '[' => { 
-                if character_class_mode || repeat_mode {
-                    panic!("Illegal Syntax! Nested brackets!");
-                }
-                character_class_mode = true;
-             }
-            ']' => { 
-                if !character_class_mode {
-                    panic!("Illegal Syntax! ']' used without opening brackets!");
-                }
-
-                let mut character_class = RegexBuildingBlock::CharacterClass(character_start_option.unwrap(), character_end_option.unwrap());
-                if arena.is_empty() {
-                    root_node_id = arena.new_node(character_class);
-                } else {
-                    let root_value = arena.get_payload(&root_node_id);
-                    match root_value {
-
-                        RegexBuildingBlock::CharacterLiteral(_) | RegexBuildingBlock::CharacterClass(_, _) | RegexBuildingBlock::Concatenation => {
-
-                            let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::Concatenation);
-                            // insert old node into the left side of new node
-                            arena.insert_left(&new_root_node_id, root_node_id.clone());
-
-                            // insert new literal into the right side
-                            arena.add_right(&new_root_node_id, character_class);
-
-                            // new node becomes root node
-                            root_node_id.index = new_root_node_id.index;
-                            root_stack[root_index].index = new_root_node_id.index;
-                        }
-
-                        RegexBuildingBlock::Repeat(min, max) => {
-
-                            let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::Concatenation);
-                            // insert old node into the left side of new node
-                            arena.insert_left(&new_root_node_id, root_node_id.clone());
-
-                            // insert new literal into the right side
-                            arena.add_right(&new_root_node_id, character_class);
-
-                            // new node becomes root node
-                            root_node_id.index = new_root_node_id.index;
-                            root_stack[root_index].index = new_root_node_id.index;
-                        }
-
-                        _ => { panic!("NIY"); }
-                    }
-                }
-
-                character_start_option = None;
-                character_end_option = None;
-                character_class_mode = false;
-            }
-
-            //
-            // braces
-            //
-
-            '(' => {
-
-                if arena.is_empty() {
-                    root_node_id = arena.new_node(RegexBuildingBlock::OpeningBraces);
-
-                    //root_index = root_index + 1;
-                    root_stack[root_index] = root_node_id.clone();
-
-                } else {
-
-                    let mut inserted: bool = false;
-                    let mut update_root_node_id: bool = true;
-
-                    let mut last_node_id: NodeId = root_node_id.clone();
-                    let mut node_id: NodeId = root_node_id.clone();
-
-                    while !inserted {
-
-                        let root_value = arena.get_payload(&node_id);
-                        match root_value {
-
-                            RegexBuildingBlock::OpeningBraces => {
-                                // CHANGE
-                                //let node_id_option = arena.get_left_id(&node_id);
-                                let node_id_option = arena.get_right_id(&node_id);
-
-                                match node_id_option {
-                                    Some(left_child_node_id) => {
-                                        last_node_id = node_id.clone();
-                                        node_id = left_child_node_id.clone();
-
-                                        update_root_node_id = false;
-                                        inserted = false;
-                                    }
-                                    None => {
-                                        // CHANGE
-                                        //arena.add_left(&node_id, RegexBuildingBlock::OpeningBraces);
-                                        arena.add_right(&node_id, RegexBuildingBlock::OpeningBraces);
-
-                                        inserted = true;
-                                    }
-                                }
-                                
-                            }
-
-                            RegexBuildingBlock::ClosedBraces => {
-
-                                let id = concat_right_side(&mut arena, &last_node_id, RegexBuildingBlock::OpeningBraces);
-
-                                // let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::Concatenation);
-                                // // insert old node into the left side of new node
-                                // arena.insert_left(&new_root_node_id, root_node_id.clone());
-
-                                // // insert new literal into the right side
-                                // let right_node_id = arena.add_right(&new_root_node_id, RegexBuildingBlock::OpeningBraces);
-
-                                // // new node becomes root node
-                                // if update_root_node_id {
-                                //     root_node_id.index = new_root_node_id.index;
-                                //     root_stack[root_index].index = new_root_node_id.index;
-                                // }
-
-                                root_index = root_index + 1;
-                                root_stack[root_index].index = id;
-
-                                inserted = true;
-                            }
-
-                            RegexBuildingBlock::CharacterLiteral(c) => {
-
-                                let concat_node_id: NodeId = arena.new_node(RegexBuildingBlock::Concatenation);
-                                // insert old node into the left side of new node
-                                arena.insert_left(&concat_node_id, node_id.clone());
-
-                                // insert new literal into the right side
-                                let right_node_id = arena.add_right(&concat_node_id, RegexBuildingBlock::OpeningBraces);
-
-                                // new node becomes root node
-                                if update_root_node_id {
-                                    root_node_id.index = concat_node_id.index;
-                                    root_stack[root_index].index = concat_node_id.index;
-                                } else {
-                                    arena.insert_right(&last_node_id, concat_node_id.clone());
-                                }
-
-                                root_index = root_index + 1;
-                                root_stack[root_index] = right_node_id.clone();
-
-                                inserted = true;
-                            }
-
-                            RegexBuildingBlock::Or => {
-                                let node_id_option = arena.get_right_id(&node_id);
-                                match node_id_option {
-
-                                    Some(right_child_node_id) => {
-                                        
-                                        // CHANGE
-                                        //left = true;
-                                        left = false;
-
-                                        last_node_id = node_id.clone();
-
-                                        // CHANGE
-                                        //node_id = left_child_node_id.clone();
-                                        node_id = right_child_node_id.clone();
-
-                                        update_root_node_id = false;
-                                        inserted = false;
-                                    }
-                                    None => {
-                                        // insert new literal into the right side
-                                        let child_node_id = arena.add_right(&node_id, RegexBuildingBlock::OpeningBraces);
-
-                                        root_index = root_index + 1;
-                                        root_stack[root_index] = child_node_id.clone();
-
-                                        inserted = true;
-                                    }
-                                }
-                            }
-
-                            _ => {
-
-                                // CHANGE
-                                // let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::OpeningBraces);
-                                // // insert old node into the left side of new node
-                                // arena.insert_left(&new_root_node_id, root_node_id.clone());
-                                // // new node becomes root node
-                                // root_node_id.index = new_root_node_id.index;
-
-                                let concat_node_id: NodeId = arena.new_node(RegexBuildingBlock::Concatenation);
-                                // insert old node into the left side of new node
-                                arena.insert_left(&concat_node_id, node_id.clone());
-
-                                // insert new literal into the right side
-                                let opening_braces_id = arena.add_right(&concat_node_id, RegexBuildingBlock::OpeningBraces);
-
-                                // new node becomes root node
-                                if update_root_node_id {
-                                    root_node_id.index = concat_node_id.index;
-                                    root_stack[root_index].index = concat_node_id.index;
-                                } else {
-                                    arena.insert_right(&last_node_id, concat_node_id.clone());
-                                }
-
-                                inserted = true;
-
-                                root_index = root_index + 1;
-                                root_stack[root_index] = opening_braces_id.clone();
-                            }
-                        }
-                    }
-                }
-            }
-
-            ')' => {
-                if arena.is_empty() {
-                    panic!("invalid!");
-                } else {
-
-                    let mut inserted: bool = false;
-                    let mut update_root_node_id: bool = true;
-
-                    let mut last_node_id: NodeId = root_node_id.clone();
-                    let mut node_id: NodeId = root_node_id.clone();
-
-                    while !inserted {
-
-                        let root_value = arena.get_payload(&node_id);
-                        match root_value {
-
-                            RegexBuildingBlock::Concatenation => {
-
-                                let node_id_option = arena.get_right_id(&node_id);
-                                match node_id_option {
-                                    Some(right_child_node_id) => {
-                                        last_node_id = node_id.clone();
-                                        node_id = right_child_node_id.clone();
-
-                                        update_root_node_id = false;
-                                        inserted = false;
-                                    }
-                                    None => {
-                                        panic!("test");
-                                    }
-                                }
-                            }
-
-                            RegexBuildingBlock::OpeningBraces => {
-
-                                arena.change_payload(&node_id, RegexBuildingBlock::ClosedBraces);
-                                inserted = true;
-
-                                if root_index != 0 {
-                                    root_index = root_index - 1;
-                                }
-
-                                // current_recombine = current_recombine + 1;
-                                // if recombine == current_recombine {
-                                //     arena.change_payload(&node_id, RegexBuildingBlock::ClosedBraces);
-
-                                //     recombine = recombine - 1;
-                                //     inserted = true;
-                                // } else {
-
-                                //     // CHANGE
-                                //     //let node_id_option = arena.get_left_id(&node_id);
-                                //     let node_id_option = arena.get_right_id(&node_id);
-
-                                //     match node_id_option {
-                                //         Some(right_child_node_id) => {
-                                //             last_node_id = node_id.clone();
-                                //             node_id = right_child_node_id.clone();
-
-                                //             update_root_node_id = false;
-                                //             inserted = false;
-                                //             //panic!("tset");
-                                //         }
-                                //         None => {
-                                //             panic!("test");
-                                //         }
-                                //     }
-                                // }
-                            }
-
-                            RegexBuildingBlock::Or => {
-                                let node_id_option = arena.get_right_id(&node_id);
-                                match node_id_option {
-                                    Some(right_child_node_id) => {
-                                        last_node_id = node_id.clone();
-                                        node_id = right_child_node_id.clone();
-
-                                        update_root_node_id = false;
-                                        inserted = false;
-                                    }
-                                    None => {
-                                        panic!("test");
-                                    }
-                                }
-                            }
-
-                            _ => { 
-                                panic!("invalid"); 
-                            }
-                        }
-                    }
-                }
-            }
-
-            '|' => {
-
-                let mut inserted: bool = false;
-                let mut update_root_node_id: bool = true;
-
-                let mut last_node_id: NodeId = root_node_id.clone();
-                let mut node_id: NodeId = root_node_id.clone();
-
-                while !inserted {
-
-                    let root_value = arena.get_payload(&node_id);
-                    match root_value {
-
-                        RegexBuildingBlock::Repeat(min, max) => {
-
-                            let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::Or);
-                            // insert old node into the left side of new node
-                            arena.insert_left(&new_root_node_id, root_node_id.clone());
-
-                            // insert new literal into the right side
-                            //arena.add_right(&new_root_node_id, character_class);
-
-                            // new node becomes root node
-                            root_node_id.index = new_root_node_id.index;
-                            root_stack[root_index].index = new_root_node_id.index;
-
-                            inserted = true;
-                        }
-
-                        RegexBuildingBlock::CharacterLiteral(_) | RegexBuildingBlock::CharacterClass(_, _) | RegexBuildingBlock::Concatenation => {
-
-                            // OR is applied at the root of the tree
-                            if node_id.index == root_node_id.index {
-
-                                let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::Or);
-
-                                // insert old node into the left side of new node
-                                arena.insert_left(&new_root_node_id, node_id.clone());
-
-                                // new node becomes root node
-                                //if update_root_node_id {
-                                    root_node_id.index = new_root_node_id.index;
-                                    root_stack[root_index].index = new_root_node_id.index;
-                                //}
-
-                                inserted = true;
-                            } else {
-                                panic!("test");
-                            }
-                        }
-
-                        RegexBuildingBlock::Or => {
-
-                            // OR is applied at the root of the tree
-                            if node_id.index == root_node_id.index {
-
-                                let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::Or);
-
-                                // insert old node into the left side of new node
-                                arena.insert_left(&new_root_node_id, node_id.clone());
-
-                                // new node becomes root node
-                                //if update_root_node_id {
-                                    root_node_id.index = new_root_node_id.index;
-                                    root_stack[root_index].index = new_root_node_id.index;
-                                //}
-
-                                inserted = true;
-                            } else {
-                                panic!("test");
-                            }
-                        }
-
-                        RegexBuildingBlock::ClosedBraces => {
-                            // OR is applied at the root of the tree
-                            if node_id.index == root_node_id.index {
-
-                                let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::Or);
-
-                                // insert old node into the left side of new node
-                                arena.insert_left(&new_root_node_id, node_id.clone());
-
-                                // new node becomes root node
-                                //if update_root_node_id {
-                                    root_node_id.index = new_root_node_id.index;
-                                    root_stack[root_index].index = new_root_node_id.index;
-                                //}
-
-                                inserted = true;
-                            } else {
-                                panic!("test");
-                            }
-                        }
-
-                        _ => {
-                            panic!("test");
-                        }
-                    }
-                }
-            }
-
-            _ => {
-
-                // if in bracket_mode build up the character class operator with start and end node
-                if character_class_mode { // e.g. [a-z]
-                    if !c.is_alphanumeric() {
-                        panic!("Range border in repeat operator is not a numeric character!");
-                    }
-                    if character_start_option.is_none() {
-                        character_start_option = Some(c);
-                    } else {
-                        character_end_option = Some(c);
-                    }
-                } else if repeat_mode { // e.g {3}, {2,4}
-                    if !c.is_numeric() && c != ',' {
-                        panic!("Range border in repeat operator is not a numeric character!");
-                    }
-                    if character_start_option.is_none() {
-                        character_start_option = Some(c);
-                        character_end_option = Some(c);
-                    } else {
-                        character_end_option = Some(c);
-                    }
-                } else {
-                    let mut character_literal = RegexBuildingBlock::CharacterLiteral(c);
-                    if arena.is_empty() {
-                        root_node_id = arena.new_node(character_literal);
-                    } else {
-
-                        let mut inserted: bool = false;
-                        let mut update_root_node_id: bool = true;
-
-                        let mut last_node_id: NodeId = root_node_id.clone();
-                        let mut node_id: NodeId = root_node_id.clone();
-
-                        while !inserted {
-                        
-                            let root_value = arena.get_payload(&node_id);
-                            match root_value {
-
-                                RegexBuildingBlock::OpeningBraces => {
-                                    
-                                    // CHANGE
-                                    //let node_id_option = arena.get_left_id(&node_id);
-                                    let node_id_option = arena.get_right_id(&node_id);
-
-                                    match node_id_option {
-                                        // CHANGE
-                                        //Some(left_child_node_id) => {
-                                        Some(right_child_node_id) => {
-                                            
-                                            // CHANGE
-                                            //left = true;
-                                            left = false;
-
-                                            last_node_id = node_id.clone();
-
-                                            // CHANGE
-                                            //node_id = left_child_node_id.clone();
-                                            node_id = right_child_node_id.clone();
-
-                                            update_root_node_id = false;
-                                            inserted = false;
-                                        }
-                                        None => {
-                                            // CHANGE
-                                            //arena.add_left(&node_id, character_literal);
-                                            arena.add_right(&node_id, character_literal);
-
-                                            inserted = true;
-                                        }
-                                    }
-                                }
-
-                                RegexBuildingBlock::ClosingBraces => {
-                                    //println!("test");
-                                    //panic!("ClosingBraces");
-                                }
-
-                                RegexBuildingBlock::ClosedBraces => {
-                                    println!("ClosedBraces");
-
-                                    let concat_node_id: NodeId = arena.new_node(RegexBuildingBlock::Concatenation);
-                                    
-                                    // insert old node into the left side of new node
-                                    arena.insert_left(&concat_node_id, node_id.clone());
-                                    //arena.insert_right(&concat_node_id, node_id.clone());
-
-                                    // insert new literal into the right side
-                                    arena.add_right(&concat_node_id, character_literal);
-
-                                    // new node becomes root node
-                                    if update_root_node_id {
-                                        root_node_id.index = concat_node_id.index;
-                                        root_stack[root_index].index = concat_node_id.index;
-                                    } else {
-                                        //arena.insert_left(&last_node_id, concatenation_node_id.clone());
-                                        arena.insert_right(&last_node_id, concat_node_id.clone());
-                                    }
-
-                                    inserted = true;
-                                }
-
-                                RegexBuildingBlock::Concatenation => {
-                                    let node_id_option = arena.get_right_id(&node_id);
-
-                                    // // CHANGE
-                                    // match node_id_option {
-                                    //     Some(left_child_node_id) => {
-                                    //         left = false;
-
-                                    //         last_node_id = node_id.clone();
-                                    //         node_id = left_child_node_id.clone();
-
-                                    //         update_root_node_id = false;
-                                    //         inserted = false;
-                                    //     }
-                                    //     None => {
-                                    //         let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::Concatenation);
-                                    //         // insert old node into the left side of new node
-                                    //         arena.insert_left(&new_root_node_id, node_id.clone());
-
-                                    //         // insert new literal into the right side
-                                    //         arena.add_right(&new_root_node_id, character_literal);
-
-                                    //         // new node becomes root node
-                                    //         if update_root_node_id {
-                                    //             root_node_id.index = new_root_node_id.index;
-                                    //         } else {
-                                    //             arena.insert_left(&last_node_id, new_root_node_id.clone());
-                                    //         }
-
-                                    //         inserted = true;
-                                    //     }
-                                    // }
-
-                                    let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::Concatenation);
-                                    // insert old node into the left side of new node
-                                    arena.insert_left(&new_root_node_id, node_id.clone());
-
-                                    // insert new literal into the right side
-                                    arena.add_right(&new_root_node_id, character_literal);
-
-                                    // new node becomes root node
-                                    if update_root_node_id {
-                                        root_node_id.index = new_root_node_id.index;
-                                        root_stack[root_index].index = new_root_node_id.index;
-                                    } else {
-                                        arena.insert_right(&last_node_id, new_root_node_id.clone());
-                                    }
-
-                                    inserted = true;
-                                }
-
-                                RegexBuildingBlock::CharacterLiteral(_) | RegexBuildingBlock::CharacterClass(_, _) => {
-
-                                    let concatenation_node_id: NodeId = arena.new_node(RegexBuildingBlock::Concatenation);
-                                    // insert old node into the left side of new node
-                                    arena.insert_left(&concatenation_node_id, node_id.clone());
-
-                                    // insert new literal into the right side
-                                    arena.add_right(&concatenation_node_id, character_literal);
-                                    
-                                    if update_root_node_id {
-                                        // new node becomes root node
-                                        root_node_id.index = concatenation_node_id.index;
-                                        root_stack[root_index].index = concatenation_node_id.index;
-                                    } else {
-                                        if left {
-                                             arena.insert_left(&last_node_id, concatenation_node_id.clone());
-                                        } else {
-                                            arena.insert_right(&last_node_id, concatenation_node_id.clone());
-                                        }
-                                    }
-
-                                    inserted = true;
-                                }
-
-                                RegexBuildingBlock::Repeat(min, max) => {
-
-                                    let new_root_node_id: NodeId = arena.new_node(RegexBuildingBlock::Concatenation);
-                                    // insert old node into the left side of new node
-                                    arena.insert_left(&new_root_node_id, node_id.clone());
-        
-                                    // insert new literal into the right side
-                                    arena.add_right(&new_root_node_id, character_literal);
-
-                                    if node_id.index == root_node_id.index {
-                                        // new node becomes root node
-                                        //if update_root_node_id {
-                                            root_node_id.index = new_root_node_id.index;
-                                            root_stack[root_index].index = new_root_node_id.index;
-                                        //}
-                                    } else {
-                                        arena.insert_right(&last_node_id, new_root_node_id.clone());
-                                    }
-
-                                    inserted = true;
-                                }
-
-                                RegexBuildingBlock::Or => {
-
-                                    let node_id_option = arena.get_right_id(&node_id);
-                                    match node_id_option {
-
-                                        Some(right_child_node_id) => {
-                                            
-                                            // CHANGE
-                                            //left = true;
-                                            left = false;
-
-                                            last_node_id = node_id.clone();
-
-                                            // CHANGE
-                                            //node_id = left_child_node_id.clone();
-                                            node_id = right_child_node_id.clone();
-
-                                            update_root_node_id = false;
-                                            inserted = false;
-                                        }
-                                        None => {
-                                            // insert new literal into the right side
-                                            arena.add_right(&node_id, character_literal);
-
-                                            inserted = true;
-                                        }
-                                    }
-                                }
-
-                                _ => { panic!("NIY"); }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let mut string_buffer = String::from("");
+
+        self.root_node_id = self.root_stack[self.root_index].clone();
+
+        recurse_postfix(&self.arena, &self.root_node_id, &mut string_buffer);
+        println!("");
+
+        // reset
+        self.root_node_id.index = 0;
+        self.character_class_mode = false;
+        self.character_start_option = None;
+        self.character_end_option = None;
+        self.left = true;
+        self.root_index = 0;
+        self.root_stack[self.root_index].index = 0;
+        self.escaped_sequence = false;
+        self.arena.reset();
+
+        string_buffer
     }
 
-    //recurse(&arena, &root_node_id);
-    //println!("");
-
-    let mut string_buffer = String::from("");
-
-    root_node_id = root_stack[root_index].clone();
-
-    recurse_postfix(&arena, &root_node_id, &mut string_buffer);
-    println!("");
-
-    string_buffer
 }
 
 pub fn main() {
+
+    //
+    // comment
+    //
+
+    // ( ( "//" | "#" | ";" | "@" ) ~ ( !("\n" | "\r\n" | "\r") ~ ANY )* )
+
+    
+    //let regex_infix: &str = "//^(a)";
+    //let regex_infix: &str = "//^(ab)"; // //#ab#^#
+    //let regex_infix: &str = "//^(a)*"; // //#a^*#
+    //let regex_infix: &str = "//^(ab)*"; // //#a^*#
+    let regex_infix: &str = "//^(\\r\\n|\\r|\\n)";
+    //let regex_infix: &str = "//^(\\r\\n|\\r|\\n)*";
+
+    //
+    // not
+    //
+
+    //let regex_infix: &str = "^a";
+    //let regex_infix: &str = "^[a-z]";
+    //let regex_infix: &str = "^[a-z][a-z]";
+    //let regex_infix: &str = "^[a-z]^[a-z]";
+    //let regex_infix: &str = "[a-z]^[a-z]";
+    //let regex_infix: &str = "^a{4}";
+    //let regex_infix: &str = "^a{3,4}";
+    //let regex_infix: &str = "^^a";
+    //let regex_infix: &str = "^ab";
+    //let regex_infix: &str = "^(a)";
+    //let regex_infix: &str = "^(a)b";
+    //let regex_infix: &str = "^(ab)c";
+
+    //
+    // operators
+    //
+
+    //let regex_infix: &str = "!=";
+    //let regex_infix: &str = "\\|";
+    //let regex_infix: &str = "\\|\\|";
+
+    //
+    // whitespace
+    //
+
+    //let regex_infix: &str = "\\t";
+    //let regex_infix: &str = " |\\t";
+    //let regex_infix: &str = "\\n";
+    //let regex_infix: &str = "(\\r\\n|\\r|\\n)";
+
+    //
+    // identifier
+    //
+
+    //let regex_infix: &str = "([a-f]|[A-F])([0-9]|[a-f]|[A-F])";
+    //let regex_infix: &str = "([a-f]|[A-F])([0-9]|[a-f]|[A-F])*";
+    //let regex_infix: &str = "([a-f])([A-F])*";
+    //let regex_infix: &str = "[a-f][A-F]*";
+
+    //
+    // numeric
+    //
+
+    //let regex_infix: &str = "\\-?[0-9]+";
+
+    //
+    // hex numeric
+    //
+
+    //let regex_infix: &str = "([0-9])+";
+    //let regex_infix: &str = "[0-9]|[A-F]";
+    //let regex_infix: &str = "([0-9]|[A-F])";
+    //let regex_infix: &str = "([0-9]|[A-F])+";
+    //let regex_infix: &str = "0x([0-9]|[A-F])+";
+    // let regex_infix: &str = "\\-?[0-9]+";
+    //let regex_infix: &str = "0x([0-9]|[A-F])+";
 
     //let regex_infix: &str = "a|b";                // 1
     //let regex_infix: &str = "a|b|c";              // 2
@@ -1334,7 +1706,7 @@ pub fn main() {
     //let regex_infix: &str = "x|(a)(b)";           // 6
     //let regex_infix: &str = "(ab)|(cd)";          // 7
     //let regex_infix: &str = "(ab)+|(cd)";         // 8
-    let regex_infix: &str = "(ab)|(cd)+";         // 9
+    //let regex_infix: &str = "(ab)|(cd)+";         // 9
     //let regex_infix: &str = "(ab)+|(cd)+";        // 10
     //let regex_infix: &str = "(ab)+|(c?d)+";       // 11
 
@@ -1390,13 +1762,218 @@ pub fn main() {
     //let regex_infix: &str = "c(d+c*)";            // 37
     //let regex_infix: &str = "c(d+c*)bc";          // 38
 
-    infix_to_postfix(regex_infix);
+    let mut conv = InfixPostfixConverter::new();
+    conv.infix_to_postfix(regex_infix);
 }
 
 #[cfg(test)]
 mod tests {
+
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
+
+    #[test]
+    fn regex_not_1_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("a^", conv.infix_to_postfix("^a"));
+    }
+
+    #[test]
+    fn regex_not_2_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("a^b#", conv.infix_to_postfix("^ab"));
+    }
+
+    #[test]
+    fn regex_not_3_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("a^", conv.infix_to_postfix("^(a)"));
+    }
+
+    #[test]
+    fn regex_not_4_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("a^b#", conv.infix_to_postfix("^(a)b"));
+    }
+
+    #[test]
+    fn regex_not_5_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("ab#^c#", conv.infix_to_postfix("^(ab)c"));
+    }
+
+    #[test]
+    fn regex_not_6_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("[a-z]^", conv.infix_to_postfix("^[a-z]"));
+    }
+
+    #[test]
+    fn regex_not_7_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("[a-z]^[a-z]#", conv.infix_to_postfix("^[a-z][a-z]"));
+    }
+
+    #[test]
+    fn regex_not_8_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("[a-z][a-z]^#", conv.infix_to_postfix("[a-z]^[a-z]"));
+    }
+
+    #[test]
+    fn regex_not_9_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("//#a^#", conv.infix_to_postfix("//^(a)"));
+    }
+
+    #[test]
+    fn regex_not_10_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("//#ab#^#", conv.infix_to_postfix("//^(ab)"));
+    }
+
+    #[test]
+    fn regex_not_11_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("//#a^*#", conv.infix_to_postfix("//^(a)*"));
+    }
+
+    #[test]
+    fn regex_not_12_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("//#ab#^*#", conv.infix_to_postfix("//^(ab)*"));
+    }
+
+    #[test]
+    fn regex_not_13_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("//#\\r\\n#\\r|\\n|^#", conv.infix_to_postfix("//^(\\r\\n|\\r|\\n)"));
+    }
+
+    #[test]
+    fn regex_not_14_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!("//#\\r\\n#\\r|\\n|^*#", conv.infix_to_postfix("//^(\\r\\n|\\r|\\n)*"));
+    }
+
+    
+
+
+    #[test]
+    fn regex_operator_1_test() {
+        let mut conv = InfixPostfixConverter::new();
+
+        assert_eq!(">>#=#", conv.infix_to_postfix(">>="));
+        assert_eq!("<<#=#", conv.infix_to_postfix("<<="));
+
+        assert_eq!("\\+=#", conv.infix_to_postfix("\\+=")); // error (escape in, unescaped out! ERROR!)
+        assert_eq!("\\-=#", conv.infix_to_postfix("\\-=")); // error (escape in, unescaped out! ERROR!)
+        assert_eq!("\\*=#", conv.infix_to_postfix("\\*=")); // error (escape in, unescaped out! ERROR!)
+        assert_eq!("/=#", conv.infix_to_postfix("/="));
+
+        assert_eq!("%=#", conv.infix_to_postfix("%="));
+        assert_eq!("&=#", conv.infix_to_postfix("&="));
+        assert_eq!("\\^=#", conv.infix_to_postfix("\\^="));
+        assert_eq!("\\|=#", conv.infix_to_postfix("\\|=")); // error (escape in, unescaped out! ERROR!)
+
+        assert_eq!(">>#", conv.infix_to_postfix(">>"));
+        assert_eq!("<<#", conv.infix_to_postfix("<<"));
+        assert_eq!("\\+\\+#", conv.infix_to_postfix("\\+\\+")); // error (escape in, unescaped out! ERROR!)
+        assert_eq!("\\-\\-#", conv.infix_to_postfix("\\-\\-")); // error (escape in, unescaped out! ERROR!)
+        assert_eq!("\\->#", conv.infix_to_postfix("\\->")); // error (escape in, unescaped out! ERROR!)
+        assert_eq!("&&#", conv.infix_to_postfix("&&"));
+        assert_eq!("\\|\\|#", conv.infix_to_postfix("\\|\\|")); // error (escape in, unescaped out! ERROR!)
+        assert_eq!("<=#", conv.infix_to_postfix("<="));
+        assert_eq!(">=#", conv.infix_to_postfix(">="));
+        assert_eq!("==#", conv.infix_to_postfix("=="));
+        assert_eq!("!=#", conv.infix_to_postfix("!="));
+    }
+
+    #[test]
+    fn regex_keyword_1_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("wh#i#l#e#", conv.infix_to_postfix("while"));
+    }
+
+    #[test]
+    fn regex_whitespace_1_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!(" ", conv.infix_to_postfix(" "));
+    }
+
+    #[test]
+    fn regex_whitespace_2_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("\\t", conv.infix_to_postfix("\\t"));
+    }
+
+    #[test]
+    fn regex_whitespace_3_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!(" \\t|", conv.infix_to_postfix(" |\\t"));
+    }
+
+    #[test]
+    fn regex_whitespace_4_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!(" \\t|+", conv.infix_to_postfix("( |\\t)+"));
+    }
+
+    // #[test]
+    // fn regex_whitespace_2_test() {
+    //     let mut conv = InfixPostfixConverter::new();
+    //     assert_eq!("\\s", conv.infix_to_postfix("\\s"));
+    // }
+
+    // #[test]
+    // fn regex_whitespace_3_test() {
+    //     let mut conv = InfixPostfixConverter::new();
+    //     assert_eq!("\\s+", conv.infix_to_postfix("\\s+"));
+    // }
+
+    #[test]
+    fn regex_newline_1_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("\\n", conv.infix_to_postfix("\\n"));
+    }
+
+    #[test]
+    fn regex_newline_2_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("\\r\\n#\\r|\\n|", conv.infix_to_postfix("(\\r\\n|\\r|\\n)"));
+    }
+
+    #[test]
+    fn regex_identifier_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-f][A-F]|[0-9][a-f]|[A-F]|*#", conv.infix_to_postfix("([a-f]|[A-F])([0-9]|[a-f]|[A-F])*"));
+    }
+
+    #[test]
+    fn regex_hex_number_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("0x#[0-9][A-F]|+#", conv.infix_to_postfix("0x([0-9]|[A-F])+"));
+    }
+
+    #[test]
+    fn regex_number_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("\\-?[0-9]+#", conv.infix_to_postfix("\\-?[0-9]+"));
+    }
 
     // a|b
     // a|b|c
@@ -1412,319 +1989,434 @@ mod tests {
 
     #[test]
     fn regex_or_1_test() {
-        assert_eq!("ab|", infix_to_postfix("a|b"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab|", conv.infix_to_postfix("a|b"));
     }
 
     #[test]
     fn regex_or_2_test() {
-        assert_eq!("ab|c|", infix_to_postfix("a|b|c"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab|c|", conv.infix_to_postfix("a|b|c"));
     }
 
     #[test]
     fn regex_or_3_test() {
-        assert_eq!("xab#|", infix_to_postfix("x|ab"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("xab#|", conv.infix_to_postfix("x|ab"));
     }
 
     #[test]
     fn regex_or_4_test() {
-        assert_eq!("xa|", infix_to_postfix("x|(a)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("xa|", conv.infix_to_postfix("x|(a)"));
     }
 
     #[test]
     fn regex_or_5_test() {
-        assert_eq!("xab#|", infix_to_postfix("x|(a)(b)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("xab#|", conv.infix_to_postfix("x|(a)(b)"));
     }
 
     #[test]
     fn regex_or_6_test() {
-        assert_eq!("ab#cd#|", infix_to_postfix("ab|cd"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#cd#|", conv.infix_to_postfix("ab|cd"));
     }
 
     #[test]
     fn regex_or_7_test() {
-        assert_eq!("ab#cd#|", infix_to_postfix("(ab)|(cd)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#cd#|", conv.infix_to_postfix("(ab)|(cd)"));
     }
 
     #[test]
     fn regex_or_8_test() {
-        assert_eq!("ab#+cd#|", infix_to_postfix("(ab)+|(cd)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#+cd#|", conv.infix_to_postfix("(ab)+|(cd)"));
     }
 
     #[test]
     fn regex_or_9_test() {
-        assert_eq!("ab#cd#+|", infix_to_postfix("(ab)|(cd)+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#cd#+|", conv.infix_to_postfix("(ab)|(cd)+"));
     }
 
     #[test]
     fn regex_or_10_test() {
-        assert_eq!("ab#+cd#+|", infix_to_postfix("(ab)+|(cd)+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#+cd#+|", conv.infix_to_postfix("(ab)+|(cd)+"));
     }
 
     #[test]
     fn regex_or_11_test() {
-        assert_eq!("ab#+c?d#+|", infix_to_postfix("(ab)+|(c?d)+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#+c?d#+|", conv.infix_to_postfix("(ab)+|(c?d)+"));
     }
-
-
 
     #[test]
     fn regex_1_test() {
-        assert_eq!("a", infix_to_postfix("a"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("a", conv.infix_to_postfix("a"));
     }
 
     #[test]
     fn regex_2_test() {
-        assert_eq!("ab#", infix_to_postfix("ab"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#", conv.infix_to_postfix("ab"));
     }
 
     #[test]
     fn regex_3_test() {
-        assert_eq!("ab#c#", infix_to_postfix("abc"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#c#", conv.infix_to_postfix("abc"));
     }
 
     #[test]
     fn regex_4_test() {
-        assert_eq!("a+", infix_to_postfix("a+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("a+", conv.infix_to_postfix("a+"));
     }
 
     #[test]
     fn regex_5_test() {
-        assert_eq!("a*", infix_to_postfix("a*"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("a*", conv.infix_to_postfix("a*"));
     }
 
     #[test]
     fn regex_6_test() {
-        assert_eq!("[a-z]", infix_to_postfix("[a-z]"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]", conv.infix_to_postfix("[a-z]"));
     }
 
     #[test]
     fn regex_7_test() {
-        assert_eq!("[a-z]x#", infix_to_postfix("[a-z]x"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]x#", conv.infix_to_postfix("[a-z]x"));
     }
 
     #[test]
     fn regex_8_test() {
-        assert_eq!("x[a-z]#", infix_to_postfix("x[a-z]"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("x[a-z]#", conv.infix_to_postfix("x[a-z]"));
     }
 
     #[test]
     fn regex_9_test() {
-        assert_eq!("[a-z]x#[a-z]#", infix_to_postfix("[a-z]x[a-z]"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]x#[a-z]#", conv.infix_to_postfix("[a-z]x[a-z]"));
     }
 
     #[test]
     fn regex_10_test() {
-        assert_eq!("[a-z][0-9]#", infix_to_postfix("[a-z][0-9]"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z][0-9]#", conv.infix_to_postfix("[a-z][0-9]"));
     }
 
     #[test]
     fn regex_11_test() {
-        assert_eq!("[a-z]+", infix_to_postfix("[a-z]+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]+", conv.infix_to_postfix("[a-z]+"));
     }
 
     #[test]
     fn regex_12_test() {
-        assert_eq!("[a-z]*", infix_to_postfix("[a-z]*"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]*", conv.infix_to_postfix("[a-z]*"));
     }
 
     #[test]
     fn regex_13_test() {
-        assert_eq!("[a-z]?", infix_to_postfix("[a-z]?"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]?", conv.infix_to_postfix("[a-z]?"));
     }
 
     #[test]
     fn regex_14_test() {
-        assert_eq!("[a-z]{3}", infix_to_postfix("[a-z]{3}"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]{3}", conv.infix_to_postfix("[a-z]{3}"));
     }
 
     #[test]
     fn regex_15_test() {
-        assert_eq!("[a-z]{3,4}", infix_to_postfix("[a-z]{3,4}"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]{3,4}", conv.infix_to_postfix("[a-z]{3,4}"));
     }
 
     #[test]
     fn regex_16_test() {
-        assert_eq!("[a-z]+[0-9]#", infix_to_postfix("[a-z]+[0-9]"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]+[0-9]#", conv.infix_to_postfix("[a-z]+[0-9]"));
     }
 
     #[test]
     fn regex_17_test() {
-        assert_eq!("[a-z]*[0-9]#", infix_to_postfix("[a-z]*[0-9]"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]*[0-9]#", conv.infix_to_postfix("[a-z]*[0-9]"));
     }
 
     #[test]
     fn regex_18_test() {
-        assert_eq!("[a-z]?[0-9]#", infix_to_postfix("[a-z]?[0-9]"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]?[0-9]#", conv.infix_to_postfix("[a-z]?[0-9]"));
     }
 
     #[test]
     fn regex_19_test() {
-        assert_eq!("[a-z]{3}[0-9]#", infix_to_postfix("[a-z]{3}[0-9]"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]{3}[0-9]#", conv.infix_to_postfix("[a-z]{3}[0-9]"));
     }
 
     #[test]
     fn regex_20_test() {
-        assert_eq!("[a-z]{3,4}[0-9]#", infix_to_postfix("[a-z]{3,4}[0-9]"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]{3,4}[0-9]#", conv.infix_to_postfix("[a-z]{3,4}[0-9]"));
     }
 
     #[test]
     fn regex_21_test() {
-        assert_eq!("a{3}", infix_to_postfix("a{3}"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("a{3}", conv.infix_to_postfix("a{3}"));
     }
 
     #[test]
     fn regex_22_test() {
-        assert_eq!("a{3,4}", infix_to_postfix("a{3,4}"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("a{3,4}", conv.infix_to_postfix("a{3,4}"));
     }
 
     #[test]
     fn regex_23_test() {
-        assert_eq!("[a-z][0-9]#", infix_to_postfix("[a-z][0-9]"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z][0-9]#", conv.infix_to_postfix("[a-z][0-9]"));
     }
 
     #[test]
     fn regex_24_test() {
-        assert_eq!("a{3,4}", infix_to_postfix("a{3,4}"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("a{3,4}", conv.infix_to_postfix("a{3,4}"));
     }
 
     #[test]
     fn regex_25_test() {
-        assert_eq!("[a-z][0-9]#", infix_to_postfix("[a-z][0-9]"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z][0-9]#", conv.infix_to_postfix("[a-z][0-9]"));
     }
 
     #[test]
     fn regex_26_test() {
-        assert_eq!("[a-z]+[0-9]+#", infix_to_postfix("[a-z]+[0-9]+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]+[0-9]+#", conv.infix_to_postfix("[a-z]+[0-9]+"));
     }
 
     #[test]
     fn regex_27_test() {
-        assert_eq!("[a-z]{3,4}[0-9]{3,4}#", infix_to_postfix("[a-z]{3,4}[0-9]{3,4}"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]{3,4}[0-9]{3,4}#", conv.infix_to_postfix("[a-z]{3,4}[0-9]{3,4}"));
     }
 
     #[test]
     fn regex_28_test() {
-        assert_eq!("[a-z][0-9]{2,3}#", infix_to_postfix("[a-z][0-9]{2,3}"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z][0-9]{2,3}#", conv.infix_to_postfix("[a-z][0-9]{2,3}"));
     }
 
     #[test]
     fn regex_29_test() {
-        assert_eq!("ab+#", infix_to_postfix("ab+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab+#", conv.infix_to_postfix("ab+"));
     }
 
     #[test]
     fn regex_30_test() {
-        assert_eq!("b[a-c]#b#b#l#e#", infix_to_postfix("b[a-c]bble"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("b[a-c]#b#b#l#e#", conv.infix_to_postfix("b[a-c]bble"));
     }
 
     #[test]
     fn regex_31_test() {
-        assert_eq!("[a-z][0-9]{2,3}+#", infix_to_postfix("[a-z][0-9]{2,3}+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z][0-9]{2,3}+#", conv.infix_to_postfix("[a-z][0-9]{2,3}+"));
     }
 
     #[test]
     fn regex_32_test() {
-        assert_eq!("[a-z]+[0-9]#", infix_to_postfix("[a-z]+[0-9]"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-z]+[0-9]#", conv.infix_to_postfix("[a-z]+[0-9]"));
     }
 
     #[test]
     fn regex_33_test() {
-        assert_eq!("a?", infix_to_postfix("a?"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("a?", conv.infix_to_postfix("a?"));
     }
 
     #[test]
     fn regex_34_test() {
-        assert_eq!("ab#c+#", infix_to_postfix("abc+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#c+#", conv.infix_to_postfix("abc+"));
     }
 
     #[test]
     fn regex_35_test() {
-        assert_eq!("ab#c?#", infix_to_postfix("abc?"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#c?#", conv.infix_to_postfix("abc?"));
     }
 
     #[test]
     fn regex_36_test() {
-        assert_eq!("d+c*#", infix_to_postfix("d+c*"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("d+c*#", conv.infix_to_postfix("d+c*"));
     }
                 
     #[test]
     fn regex_37_test() {
-        assert_eq!("a", infix_to_postfix("(a)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("a", conv.infix_to_postfix("(a)"));
     }
 
     #[test]
     fn regex_38_test() {
-        assert_eq!("ab#", infix_to_postfix("(ab)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#", conv.infix_to_postfix("(ab)"));
     } 
 
     #[test]
     fn regex_39_test() {
-        assert_eq!("ab#", infix_to_postfix("(a)(b)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#", conv.infix_to_postfix("(a)(b)"));
     }                
 
     #[test]
     fn regex_42_test() {
-        assert_eq!("ab#", infix_to_postfix("(a(b))"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#", conv.infix_to_postfix("(a(b))"));
     }
     
     #[test]
     fn regex_43_test() {
-        assert_eq!("ab#c#", infix_to_postfix("(a(b)c)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#c#", conv.infix_to_postfix("(a(b)c)"));
     }  
 
     #[test]
     fn regex_46_test() {
-        assert_eq!("a+", infix_to_postfix("(a)+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("a+", conv.infix_to_postfix("(a)+"));
     }  
 
     #[test]
     fn regex_47_test() {
-        assert_eq!("ab#+", infix_to_postfix("(ab)+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#+", conv.infix_to_postfix("(ab)+"));
     }
     
     #[test]
     fn regex_48_test() {
-        assert_eq!("ab#+", infix_to_postfix("(a(b))+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#+", conv.infix_to_postfix("(a(b))+"));
     }
 
     #[test]
     fn regex_49_test() {
-        assert_eq!("ab+#+", infix_to_postfix("(a(b)+)+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab+#+", conv.infix_to_postfix("(a(b)+)+"));
     }
 
     #[test]
     fn regex_50_test() {
-        assert_eq!("ab#cd#+#e#f#", infix_to_postfix("(ab(cd)+ef)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#cd#+#e#f#", conv.infix_to_postfix("(ab(cd)+ef)"));
     }
 
     #[test]
     fn regex_51_test() {
-        assert_eq!("ab#cd#+#e#f#+", infix_to_postfix("(ab(cd)+ef)+"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#cd#+#e#f#+", conv.infix_to_postfix("(ab(cd)+ef)+"));
     }
 
     #[test]
     fn regex_58_test() {
-        assert_eq!("ab#", infix_to_postfix("a(b)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#", conv.infix_to_postfix("a(b)"));
     }
 
     #[test]
     fn regex_60_test() {
-        assert_eq!("d+c*#", infix_to_postfix("(d+c*)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("d+c*#", conv.infix_to_postfix("(d+c*)"));
     }
 
     #[test]
     fn regex_61_test() {
-        assert_eq!("cd+c*##", infix_to_postfix("c(d+c*)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("cd+c*##", conv.infix_to_postfix("c(d+c*)"));
     }
 
     #[test]
     fn regex_62_test() {
-        assert_eq!("ab#", infix_to_postfix("a(b)"));
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab#", conv.infix_to_postfix("a(b)"));
     }
 
     #[test]
     fn regex_63_test() {
-        assert_eq!("cd+c*##b#c#", infix_to_postfix("c(d+c*)bc"));
-    }   
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("cd+c*##b#c#", conv.infix_to_postfix("c(d+c*)bc"));
+    }
 
+    #[test]
+    fn regex_or_64_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[0-9]+", conv.infix_to_postfix("([0-9])+"));
+    }
+
+    #[test]
+    fn regex_or_65_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[0-9][A-F]|", conv.infix_to_postfix("[0-9]|[A-F]"));
+    }
+
+    #[test]
+    fn regex_or_66_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[0-9][A-F]|", conv.infix_to_postfix("([0-9]|[A-F])"));
+    }
+
+    #[test]
+    fn regex_or_67_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[0-9][A-F]|+", conv.infix_to_postfix("([0-9]|[A-F])+"));
+    }
+
+    #[test]
+    fn regex_or_68_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("0x#[0-9][A-F]|+#", conv.infix_to_postfix("0x([0-9]|[A-F])+"));
+    }
+    
+    #[test]
+    fn regex_69_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab*#", conv.infix_to_postfix("ab*"));
+    }
+
+    #[test]
+    fn regex_70_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("ab*#", conv.infix_to_postfix("a(b)*"));
+    }
+
+    #[test]
+    fn regex_71_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-f][A-F]|[0-9][a-f]|[A-F]|#", conv.infix_to_postfix("([a-f]|[A-F])([0-9]|[a-f]|[A-F])"));
+    }
+
+    #[test]
+    fn regex_72_test() {
+        let mut conv = InfixPostfixConverter::new();
+        assert_eq!("[a-f][A-F]|[0-9][a-f]|[A-F]|*#", conv.infix_to_postfix("([a-f]|[A-F])([0-9]|[a-f]|[A-F])*"));
+    }
 }
+
